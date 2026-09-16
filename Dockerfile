@@ -11,18 +11,13 @@ WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Copy project definition first for dependency layer caching
+# Copy project files and source
 COPY pyproject.toml uv.lock* README.md ./
-
-# Install production dependencies directly into system python
-RUN uv pip install --system --no-cache -e .
-
-# Copy application source and tools
 COPY src/ ./src/
 COPY tools/ ./tools/
 
-# Install package itself in editable/system mode
-RUN uv pip install --system --no-cache --no-deps -e .
+# Install dependencies and project into system python
+RUN uv pip install --system --no-cache .
 
 EXPOSE 8000
 
