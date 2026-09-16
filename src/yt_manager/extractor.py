@@ -6,7 +6,6 @@ import yt_dlp
 KNOWN_EXTRACTORS = {
     "youtube",
     "twitter",
-    "x",
     "tiktok",
     "instagram",
     "facebook",
@@ -42,10 +41,14 @@ INSTAGRAM_URL_PATTERN = re.compile(
 
 def normalize_extractor(extractor: str) -> str:
     """Normalize extractor names to match yt-dlp archive conventions."""
-    ext = extractor.lower().strip()
-    if ext == "x":
-        return "twitter"
-    return ext
+    return extractor.lower().strip()
+
+
+_EXTRACTOR_REGEX = "|".join(re.escape(e) for e in sorted(KNOWN_EXTRACTORS, key=len, reverse=True))
+EXTRACTOR_PATTERN = re.compile(
+    rf"\[({_EXTRACTOR_REGEX})[- _]([a-zA-Z0-9_-]+)\]$",
+    re.IGNORECASE,
+)
 
 
 def extract_from_filename(filename_or_path: str | Path) -> Optional[tuple[str, str]]:
@@ -59,24 +62,13 @@ def extract_from_filename(filename_or_path: str | Path) -> Optional[tuple[str, s
     """
     stem = Path(filename_or_path).stem
 
-    # Find the content inside the LAST brackets: "[...]"
-    bracket_match = re.search(r"\[([^\[\]]+)\]$", stem)
-    if not bracket_match:
+    m = EXTRACTOR_PATTERN.search(stem)
+    if not m:
         return None
 
-    content = bracket_match.group(1).strip()
-
-    # Explicit extractor prefix: "[extractor<sep>id]"
-    sep_match = re.match(r"^([a-zA-Z0-9_-]+?)[- _]([a-zA-Z0-9_-]+)$", content)
-    if not sep_match:
-        return None
-
-    cand_ext, cand_id = sep_match.group(1), sep_match.group(2)
-    norm_ext = normalize_extractor(cand_ext)
-    if norm_ext in KNOWN_EXTRACTORS:
-        return norm_ext, cand_id
-
-    return None
+    cand_ext = m.group(1).lower()
+    cand_id = m.group(2)
+    return cand_ext, cand_id
 
 
 def extract_from_url(url: str, use_ytdlp_fallback: bool = True) -> Optional[tuple[str, str]]:

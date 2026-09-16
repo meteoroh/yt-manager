@@ -15,9 +15,9 @@ def test_extract_from_filename_explicit_extractor():
     res3 = extract_from_filename("트윗 영상 [twitter-1598765432109876543].mkv")
     assert res3 == ("twitter", "1598765432109876543")
 
-    # X normalized to twitter
-    res4 = extract_from_filename("X 영상 [x-1598765432109876543].mp4")
-    assert res4 == ("twitter", "1598765432109876543")
+    # YouTube with underscore/hyphen in ID
+    res4 = extract_from_filename("전소미 DUMB DUMB [youtube-X_JFHg2T30o].webm")
+    assert res4 == ("youtube", "X_JFHg2T30o")
 
     # Instagram bracket with underscore
     res5 = extract_from_filename("인스타 릴스 [instagram_CW123abcXYZ].mp4")
@@ -30,6 +30,7 @@ def test_extract_from_filename_non_prefixed():
     assert extract_from_filename("뮤직비디오-dQw4w9WgXcQ.mp4") is None
     assert extract_from_filename("영상 [dp-0kWDkTj4].mp4") is None
     assert extract_from_filename("영상 [dm_DIzMTbsQ].mp4") is None
+    assert extract_from_filename("[4K] 전소미 직캠 [X_JFHg2T30o].webm") is None
     assert extract_from_filename("무제_문서.mp4") is None
     assert extract_from_filename("family_photo.jpg") is None
 

@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """
-1회성 파일명 마이그레이션 스크립트 (Dry-Run 기본 지원)
+One-off filename migration script (Dry-Run by default).
 
-기존 기본 yt-dlp 포맷의 파일명을 신규 표준 규격 [%(extractor)s-%(id)s] 형태로 안전하게 일괄 변환합니다.
-- YouTube:   "제목 [id].mp4"                -> "제목 [youtube-id].mp4"
-- Twitter:   "Username - 제목 [id].mp4"     -> "Username - 제목 [twitter-id].mp4"
+Safely batch-converts legacy yt-dlp filenames into the standard [%(extractor)s-%(id)s] format:
+- YouTube:   "Title [id].mp4"                -> "Title [youtube-id].mp4"
+- Twitter:   "Username - Title [id].mp4"     -> "Username - Title [twitter-id].mp4"
 - Instagram: "Video by username [id].mp4"   -> "Video by username [instagram-id].mp4"
-- TikTok:    "제목 [id].mp4"                -> "제목 [tiktok-id].mp4"
+- TikTok:    "Title [id].mp4"                -> "Title [tiktok-id].mp4"
 
-사용법:
-  # 1. 변경 예정 내역만 안전하게 미리보기 (기본 Dry-run)
-  uv run python tools/migrate_filenames.py /path/to/media
+Usage:
+  # 1. Preview changes safely (Dry-run by default)
+  uv run yt-migrate /path/to/media
 
-  # 2. 실제 디스크 파일 이름 변경 적용
-  uv run python tools/migrate_filenames.py /path/to/media --apply
+  # 2. Apply rename on disk
+  uv run yt-migrate /path/to/media --apply
 
-  # 3. 기존 archive.txt를 대조하여 100% 정확하게 판별하기
-  uv run python tools/migrate_filenames.py /path/to/media --archive-file /path/to/archive.txt
+  # 3. Use existing archive.txt for 100% accurate platform mapping
+  uv run yt-migrate /path/to/media --archive-file /path/to/archive.txt
 """
 
 import argparse
@@ -50,7 +50,6 @@ IGNORED_DIR_NAMES = {
 KNOWN_EXTRACTORS = {
     "youtube",
     "twitter",
-    "x",
     "tiktok",
     "instagram",
     "facebook",
@@ -59,7 +58,14 @@ KNOWN_EXTRACTORS = {
     "soundcloud",
     "vimeo",
     "threads",
+    "weibo",
 }
+
+_EXTRACTOR_REGEX = "|".join(re.escape(e) for e in sorted(KNOWN_EXTRACTORS, key=len, reverse=True))
+ALREADY_NORMALIZED_PATTERN = re.compile(
+    rf"\[({_EXTRACTOR_REGEX})[- _]([a-zA-Z0-9_-]+)\]\.[a-zA-Z0-9]+$",
+    re.IGNORECASE,
+)
 
 
 def load_archive_lookup(archive_path: Optional[Path]) -> dict[str, str]:
@@ -78,7 +84,7 @@ def load_archive_lookup(archive_path: Optional[Path]) -> dict[str, str]:
                         extractor = "twitter"
                     lookup[video_id] = extractor
     except Exception as e:
-        print(f"[경고] archive.txt 로드 실패 ({e})")
+        print(f"[WARNING] Failed to load archive.txt ({e})")
 
     return lookup
 
@@ -128,11 +134,8 @@ def get_new_filename(
     Returns: (new_filename, platform, video_id) or None if skipped/already normalized.
     """
     # Check if already normalized [extractor-id]
-    already_m = re.search(r"\[([a-zA-Z0-9_-]+?)[- _]([a-zA-Z0-9_-]+?)\]\.[a-zA-Z0-9]+$", filename)
-    if already_m:
-        cand_ext = already_m.group(1).lower()
-        if cand_ext in KNOWN_EXTRACTORS:
-            return None  # Already normalized
+    if ALREADY_NORMALIZED_PATTERN.search(filename):
+        return None  # Already normalized
 
     # Match single bracket ID: prefix[id].ext
     single_m = re.search(r"^(.*)\[([a-zA-Z0-9_-]+)\](\.[a-zA-Z0-9]+)$", filename)
@@ -163,15 +166,15 @@ def scan_and_migrate(
     archive_lookup: dict[str, str],
 ) -> None:
     if not target_dir.exists():
-        print(f"[오류] 대상 디렉토리가 존재하지 않습니다: {target_dir}")
+        print(f"[ERROR] Target directory does not exist: {target_dir}")
         return
 
     print("=" * 70)
-    print("  yt-manager 파일명 마이그레이션 도구")
-    print(f"  대상 디렉토리 : {target_dir.resolve()}")
-    print(f"  동작 모드     : {'[APPLY] 실제 파일명 변경 실행' if apply else '[DRY-RUN] 미리보기 모드 (파일 변경 없음)'}")
+    print("  yt-manager Filename Migration Tool")
+    print(f"  Target Directory : {target_dir.resolve()}")
+    print(f"  Execution Mode   : {'[APPLY] Renaming files on disk' if apply else '[DRY-RUN] Preview mode (No files modified)'}")
     if archive_lookup:
-        print(f"  archive.txt   : {len(archive_lookup)}개 ID 매핑 로드 완료")
+        print(f"  Archive Mappings : {len(archive_lookup)} entries loaded from archive.txt")
     print("=" * 70)
 
     total_scanned = 0
@@ -207,66 +210,66 @@ def scan_and_migrate(
                 skipped_count += 1
 
     if not plan:
-        print(f"\n변환 대상 파일이 없습니다. (총 {total_scanned}개 파일 확인, 모두 이미 규격화되었거나 제외됨)")
+        print(f"\nNo files to migrate. (Checked {total_scanned} files; all already normalized or skipped)")
         return
 
-    print(f"\n[변환 대상 파일: {len(plan)}개]")
+    print(f"\n[Files to migrate: {len(plan)}]")
     print("-" * 70)
 
     for src_path, dst_path, platform, vid in plan:
         rel_dir = src_path.parent.relative_to(target_dir) if src_path.parent != target_dir else Path(".")
-        print(f"폴더: {rel_dir}")
-        print(f"  - 기존: {src_path.name}")
-        print(f"  + 변경: {dst_path.name}  [{platform.upper()}]")
+        print(f"Folder: {rel_dir}")
+        print(f"  - Old: {src_path.name}")
+        print(f"  + New: {dst_path.name}  [{platform.upper()}]")
 
         if apply:
             if dst_path.exists():
-                print(f"  [건너뜀] 대상 파일명이 이미 존재합니다: {dst_path.name}")
+                print(f"  [SKIPPED] Destination file already exists: {dst_path.name}")
                 error_count += 1
                 continue
             try:
                 src_path.rename(dst_path)
                 migrated_count += 1
             except Exception as e:
-                print(f"  [오류] 이름 변경 실패: {e}")
+                print(f"  [ERROR] Failed to rename: {e}")
                 error_count += 1
         print()
 
     print("=" * 70)
-    print("처리 결과 요약:")
-    print(f"  - 총 검사 파일 수 : {total_scanned}개")
-    print(f"  - 변환 대상       : {len(plan)}개")
+    print("Summary:")
+    print(f"  - Total files scanned  : {total_scanned}")
+    print(f"  - Files to migrate     : {len(plan)}")
     if apply:
-        print(f"  - 성공 변경       : {migrated_count}개")
+        print(f"  - Successfully renamed : {migrated_count}")
         if error_count:
-            print(f"  - 실패/건너뜀     : {error_count}개")
-        print("\n[완료] 파일명 일괄 변경이 완료되었습니다. 백엔드 스캐너를 돌려 DB를 동기화하세요.")
+            print(f"  - Failed / Skipped     : {error_count}")
+        print("\n[COMPLETE] Filename migration finished. Run the backend scanner to resync the database.")
     else:
-        print(f"\n[안내] 현재는 Dry-run(미리보기) 모드였습니다. 실제로 파일명을 변경하려면 다음 명령어를 실행하세요:")
-        print(f'  uv run python tools/migrate_filenames.py "{target_dir}" --apply')
+        print(f"\n[NOTICE] This was a Dry-Run preview. To apply the changes to disk, run:")
+        print(f'  uv run yt-migrate "{target_dir}" --apply')
     print("=" * 70)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="yt-manager 파일명 일괄 마이그레이션 도구 ([id] -> [extractor-id])"
+        description="yt-manager filename migration tool ([id] -> [extractor-id])"
     )
     parser.add_argument(
         "target_dir",
         type=Path,
-        help="검사 및 변환할 디렉토리 경로 (예: /media 또는 /downloads)",
+        help="Target directory path to inspect and migrate (e.g. /media or /downloads)",
     )
     parser.add_argument(
         "--apply",
         action="store_true",
         default=False,
-        help="실제 디스크 파일명 변경을 수행합니다. (지정하지 않으면 Dry-Run 모드로 미리보기만 실행)",
+        help="Apply renaming directly on disk (defaults to dry-run preview if omitted)",
     )
     parser.add_argument(
         "--archive-file",
         type=Path,
         default=None,
-        help="선택사항: 기존 yt-dlp archive.txt 경로 (ID 기반 100%% 정확한 플랫폼 매핑용)",
+        help="Optional: Path to existing yt-dlp archive.txt for 100%% accurate platform mapping",
     )
 
     args = parser.parse_args()

@@ -15,6 +15,22 @@ def test_get_new_filename_detection():
     assert yt_res[0] == "영상 제목 [youtube-dQw4w9WgXcQ].webm"
     assert yt_res[1] == "youtube"
 
+    # YouTube ID starting with X_ or containing hyphen
+    yt_res_x = get_new_filename(
+        "[4K] 전소미(JEON SOMI) 「DUMB DUMB」 세로 직캠 @카스쿨 페스티벌 2025(CassCool Festival), 250823 [X_JFHg2T30o].webm",
+        lookup,
+    )
+    assert yt_res_x is not None
+    assert yt_res_x[0] == "[4K] 전소미(JEON SOMI) 「DUMB DUMB」 세로 직캠 @카스쿨 페스티벌 2025(CassCool Festival), 250823 [youtube-X_JFHg2T30o].webm"
+    assert yt_res_x[1] == "youtube"
+    assert yt_res_x[2] == "X_JFHg2T30o"
+
+    yt_res_dash = get_new_filename("영상 [dp-0kWDkTj4].mp4", lookup)
+    assert yt_res_dash is not None
+    assert yt_res_dash[0] == "영상 [youtube-dp-0kWDkTj4].mp4"
+    assert yt_res_dash[1] == "youtube"
+    assert yt_res_dash[2] == "dp-0kWDkTj4"
+
     # 2. Twitter
     tw_res = get_new_filename("아이유 - 콘서트 직캠 [1598765432109876543].mp4", lookup)
     assert tw_res is not None
