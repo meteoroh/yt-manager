@@ -77,6 +77,8 @@ async def lifespan(app: FastAPI):
     logger.info("yt-manager service shut down.")
 
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(
     title="yt-manager",
     description="NAS Media Archive & Download Manager for MeTube and yt-dlp",
@@ -84,11 +86,27 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Enable CORS for cross-origin requests (e.g., iOS Shortcuts, web dashboards)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(router)
 
 
 def main():
-    uvicorn.run("yt_manager.main:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run(
+        "yt_manager.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
 
 
 if __name__ == "__main__":
