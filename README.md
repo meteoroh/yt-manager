@@ -137,7 +137,7 @@ docker compose logs -f yt-manager
     "folder": "IU",
     "file_name": "Good Day [youtube-dQw4w9WgXcQ].mp4",
     "file_path": "/media/IU/Good Day [youtube-dQw4w9WgXcQ].mp4",
-    "message": "이미 저장된 영상입니다. (위치: /media/IU/Good Day [youtube-dQw4w9WgXcQ].mp4)",
+    "message": "Video already exists. (Location: /media/IU/Good Day [youtube-dQw4w9WgXcQ].mp4)",
     "download_triggered": false,
     "download_result": null
   }
@@ -151,7 +151,7 @@ docker compose logs -f yt-manager
     "folder": null,
     "file_name": null,
     "file_path": null,
-    "message": "저장되어 있지 않은 영상입니다.",
+    "message": "Video not found.",
     "download_triggered": false,
     "download_result": null
   }
@@ -188,7 +188,7 @@ Healthcheck endpoint (`{"status": "ok"}`).
      - `auto_download`: `false`
 3. **Condition Flow**:
    - If `exists` is `true`:
-     - Show Notification: `[message]` (e.g., *"이미 저장된 영상입니다. (위치: /media/IU/Good Day [youtube-dQw4w9WgXcQ].mp4)"*)
+     - Show Notification: `[message]` (e.g., *"Video already exists. (Location: /media/IU/Good Day [youtube-dQw4w9WgXcQ].mp4)"*)
    - If `exists` is `false`:
      - Choose from Menu: *"Video is not saved. Download now via MeTube?"*
        - [Download]: Call `POST http://<NAS_IP>:8000/download`.

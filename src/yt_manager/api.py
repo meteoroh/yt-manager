@@ -80,7 +80,7 @@ async def check_video(
     if not parsed:
         return CheckVideoResponse(
             exists=False,
-            message="해당 URL에서 비디오 ID를 추출할 수 없습니다.",
+            message="Could not extract video ID from the provided URL.",
         )
 
     extractor, video_id = parsed
@@ -102,7 +102,7 @@ async def check_video(
             folder=folder_name,
             file_name=p.name,
             file_path=file_path,
-            message=f"이미 저장된 영상입니다. (위치: {file_path})",
+            message=f"Video already exists. (Location: {file_path})",
         )
 
     # Not found
@@ -110,7 +110,7 @@ async def check_video(
         exists=False,
         extractor=extractor,
         video_id=video_id,
-        message="저장되어 있지 않은 영상입니다.",
+        message="Video not found.",
     )
 
     if req.auto_download:
@@ -135,12 +135,12 @@ async def download_video(
     if res.get("success"):
         return DownloadResponse(
             success=True,
-            message="MeTube에 다운로드 요청을 성공적으로 전송했습니다.",
+            message="Download request successfully sent to MeTube.",
             details=res,
         )
     return DownloadResponse(
         success=False,
-        message=res.get("error", "다운로드 요청 실패"),
+        message=res.get("error", "Failed to request download"),
         details=res,
     )
 

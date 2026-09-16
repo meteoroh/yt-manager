@@ -13,38 +13,38 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # NAS 디스크 경로
+      # NAS directory paths
       - DOWNLOADS_DIR=/downloads
       - MEDIA_DIR=/media
       - ARCHIVE_FILE_PATH=/media/archive.txt
       - DB_PATH=/media/yt_manager.db
 
-      # MeTube 주소 (동일 compose인 경우 http://metube:8081, 별도 컨테이너면 NAS IP 지정)
+      # MeTube URL (use http://metube:8081 if in the same compose, or NAS IP if running separately)
       - METUBE_URL=http://metube:8081
 
-      # 스캔 주기 (분 단위)
+      # Scan interval (in minutes)
       - SCAN_INTERVAL_MINUTES=15
       - AUTO_SCAN_ON_STARTUP=true
 
-      # 스캔 제외 설정 (쉼표 구분)
-      - EXCLUDE_DIRS=backup,temp,/media/가족
+      # Scan exclusion settings (comma-separated)
+      - EXCLUDE_DIRS=backup,temp,/media/family
       - EXCLUDE_PATTERNS=*sample*,*.temp.mp4
 
-      # 텔레그램 봇 설정 (선택사항)
+      # Telegram bot configuration (optional)
       - TELEGRAM_BOT_TOKEN=
       - TELEGRAM_ALLOWED_USERS=
 
-      # 시간대
+      # Timezone
       - TZ=Asia/Seoul
     volumes:
-      # 실제 NAS 호스트 경로로 매핑해 주세요
+      # Map to your actual NAS host paths
       - /volume1/downloads:/downloads
       - /volume1/media:/media
-    # metube와 함께 구성하는 경우 활성화
+    # Enable if running together with metube
     # depends_on:
     #   - metube
 
-  # (선택) MeTube를 같은 docker-compose에 함께 구성할 경우 아래 주석을 해제하세요
+  # (Optional) Uncomment below to run MeTube in the same docker-compose
   # metube:
   #   image: ghcr.io/alexta69/metube
   #   container_name: metube

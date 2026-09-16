@@ -102,7 +102,7 @@ class TelegramBotService:
         if not is_user_allowed(user.id, self.settings):
             if update.message:
                 await update.message.reply_text(
-                    f"⛔️ 접근 권한이 없습니다.\n(내 텔레그램 ID: `{user.id}`)",
+                    f"⛔️ Access denied.\n(Your Telegram ID: `{user.id}`)",
                     parse_mode="Markdown",
                 )
             return False
@@ -113,15 +113,15 @@ class TelegramBotService:
             return
         user_id = update.effective_user.id if update.effective_user else 0
         text = (
-            f"👋 안녕하세요! **yt-manager 봇**입니다.\n\n"
-            f"📌 **사용 방법**:\n"
-            f"• 유튜브, 트위터, 인스타, 틱톡 링크를 하나 또는 여러 개 복사해서 보내주세요.\n"
-            f"• 링크가 담긴 `.txt` 파일을 전송하셔도 됩니다.\n"
-            f"• 소장 여부를 확인하고 미소장 영상은 원클릭으로 MeTube에 일괄 다운로드합니다.\n\n"
-            f"⚙️ **명령어**:\n"
-            f"• `/scan` - NAS 디스크 즉시 재스캔 & archive 동기화\n"
-            f"• `/status` - 서버 상태 및 소장 파일 수 확인\n\n"
-            f"🆔 내 텔레그램 ID: `{user_id}`"
+            f"👋 Hello! Welcome to **yt-manager bot**.\n\n"
+            f"📌 **How to use**:\n"
+            f"• Send one or more links from YouTube, Twitter/X, Instagram, or TikTok.\n"
+            f"• You can also send a `.txt` file containing links.\n"
+            f"• The bot checks if videos are already saved, and lets you download missing ones to MeTube with one click.\n\n"
+            f"⚙️ **Commands**:\n"
+            f"• `/scan` - Scan NAS disk & sync archive immediately\n"
+            f"• `/status` - Check server status & media count\n\n"
+            f"🆔 Your Telegram ID: `{user_id}`"
         )
         await update.message.reply_text(text, parse_mode="Markdown")
 
@@ -131,19 +131,19 @@ class TelegramBotService:
         db = self._get_db()
         stats = get_scan_stats()
         text = (
-            f"📊 **yt-manager 시스템 상태**\n\n"
-            f"• 총 소장 미디어: **{db.count():,}개**\n"
-            f"• 마지막 스캔 시각: `{stats.last_scanned_at or '없음'}`\n"
-            f"• 스캔 소요 시간: `{stats.duration_seconds}s`\n"
-            f"• 보관함 경로: `{self.settings.media_dir}`\n"
-            f"• MeTube 주소: `{self.settings.metube_url}`"
+            f"📊 **yt-manager System Status**\n\n"
+            f"• Total Saved Media: **{db.count():,}**\n"
+            f"• Last Scanned At: `{stats.last_scanned_at or 'Never'}`\n"
+            f"• Scan Duration: `{stats.duration_seconds}s`\n"
+            f"• Media Directory: `{self.settings.media_dir}`\n"
+            f"• MeTube URL: `{self.settings.metube_url}`"
         )
         await update.message.reply_text(text, parse_mode="Markdown")
 
     async def handle_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._check_auth(update):
             return
-        status_msg = await update.message.reply_text("🔄 NAS 디스크 스캔을 시작합니다...")
+        status_msg = await update.message.reply_text("🔄 Scanning NAS disk...")
         db = self._get_db()
 
         loop = asyncio.get_running_loop()
@@ -159,10 +159,10 @@ class TelegramBotService:
         )
 
         await status_msg.edit_text(
-            f"✅ **스캔 완료!**\n\n"
-            f"• 총 파일: **{stats.total_files:,}개**\n"
-            f"• 삭제 반영: **{stats.deleted_files:,}개**\n"
-            f"• 소요 시간: **{stats.duration_seconds}초**",
+            f"✅ **Scan Complete!**\n\n"
+            f"• Total Files: **{stats.total_files:,}**\n"
+            f"• Deleted/Pruned: **{stats.deleted_files:,}**\n"
+            f"• Duration: **{stats.duration_seconds}s**",
             parse_mode="Markdown",
         )
 
@@ -183,7 +183,7 @@ class TelegramBotService:
         if not doc or not doc.file_name or not doc.file_name.lower().endswith(".txt"):
             return
 
-        status_msg = await update.message.reply_text("📄 텍스트 파일에서 링크를 추출하는 중...")
+        status_msg = await update.message.reply_text("📄 Extracting links from text file...")
         try:
             tg_file = await doc.get_file()
             byte_array = await tg_file.download_as_bytearray()
@@ -191,14 +191,14 @@ class TelegramBotService:
             urls = extract_urls_from_text(content)
 
             if not urls:
-                await status_msg.edit_text("⚠️ 파일 내에서 유효한 링크를 찾지 못했습니다.")
+                await status_msg.edit_text("⚠️ No valid links found in the file.")
                 return
 
             await status_msg.delete()
             await self._process_and_respond(update, urls)
         except Exception as e:
             logger.error(f"Error reading document: {e}", exc_info=True)
-            await status_msg.edit_text(f"❌ 파일 처리 중 오류가 발생했습니다: {e}")
+            await status_msg.edit_text(f"❌ Error processing file: {e}")
 
     async def _process_and_respond(self, update: Update, urls: list[str]):
         db = self._get_db()
@@ -209,10 +209,10 @@ class TelegramBotService:
             if found:
                 item = found[0]
                 text = (
-                    f"✅ **이미 소장 중인 영상입니다!**\n\n"
-                    f"• 플랫폼: **{item['extractor'].upper()}**\n"
+                    f"✅ **Video already saved!**\n\n"
+                    f"• Platform: **{item['extractor'].upper()}**\n"
                     f"• ID: `{item['video_id']}`\n"
-                    f"• 저장 위치:\n`{item['file_path']}`"
+                    f"• Location:\n`{item['file_path']}`"
                 )
                 await update.message.reply_text(text, parse_mode="Markdown")
             elif missing:
@@ -221,16 +221,16 @@ class TelegramBotService:
                 ACTION_CACHE[action_id] = [item["url"]]
 
                 text = (
-                    f"❌ **저장되어 있지 않은 영상입니다.**\n\n"
-                    f"• 플랫폼: **{item['extractor'].upper()}**\n"
+                    f"❌ **Video not saved.**\n\n"
+                    f"• Platform: **{item['extractor'].upper()}**\n"
                     f"• ID: `{item['video_id']}`\n"
                     f"• URL: {item['url']}\n\n"
-                    f"지금 MeTube로 다운로드할까요?"
+                    f"Download now via MeTube?"
                 )
                 keyboard = [
                     [
-                        InlineKeyboardButton("⬇️ MeTube로 다운로드", callback_data=f"dl_single:{action_id}"),
-                        InlineKeyboardButton("❌ 취소", callback_data=f"cancel:{action_id}"),
+                        InlineKeyboardButton("⬇️ Download via MeTube", callback_data=f"dl_single:{action_id}"),
+                        InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{action_id}"),
                     ]
                 ]
                 await update.message.reply_text(
@@ -239,34 +239,34 @@ class TelegramBotService:
                     parse_mode="Markdown",
                 )
             else:
-                await update.message.reply_text("⚠️ 해당 URL에서 비디오 ID를 추출할 수 없습니다.")
+                await update.message.reply_text("⚠️ Could not extract video ID from the provided URL.")
             return
 
         # Case 2: Bulk URLs (2 or more)
-        report_lines = [f"📋 **총 {len(urls)}개의 링크 검사 결과**\n"]
+        report_lines = [f"📋 **Checked {len(urls)} link(s)**\n"]
 
         if found:
-            report_lines.append(f"✅ **이미 소장 중 ({len(found)}개):**")
+            report_lines.append(f"✅ **Already Saved ({len(found)}):**")
             for item in found:
                 report_lines.append(f"• [{item['extractor'].upper()}] `{item['video_id']}`\n  └ `{item['file_path']}`")
             report_lines.append("")
 
         if missing:
-            report_lines.append(f"❌ **미소장 영상 ({len(missing)}개):**")
+            report_lines.append(f"❌ **Missing ({len(missing)}):**")
             for item in missing:
                 report_lines.append(f"• [{item['extractor'].upper()}] `{item['video_id']}`")
             report_lines.append("")
 
         if invalid:
-            report_lines.append(f"⚠️ **인식 불가 ({len(invalid)}개):**")
+            report_lines.append(f"⚠️ **Unrecognized ({len(invalid)}):**")
             for u in invalid[:3]:
                 report_lines.append(f"• `{u[:40]}...`" if len(u) > 40 else f"• `{u}`")
             if len(invalid) > 3:
-                report_lines.append(f"• ...외 {len(invalid)-3}개")
+                report_lines.append(f"• ...and {len(invalid)-3} more")
             report_lines.append("")
 
         if not missing:
-            report_lines.append("🎉 **확인된 모든 영상이 이미 소장되어 있습니다!**")
+            report_lines.append("🎉 **All verified videos are already saved!**")
             await update.message.reply_text("\n".join(report_lines), parse_mode="Markdown")
             return
 
@@ -278,12 +278,12 @@ class TelegramBotService:
         keyboard = [
             [
                 InlineKeyboardButton(
-                    f"⬇️ 미소장 영상 {len(missing)}개 모두 다운로드",
+                    f"⬇️ Download all {len(missing)} missing video(s)",
                     callback_data=f"dl_bulk:{action_id}",
                 )
             ],
             [
-                InlineKeyboardButton("❌ 취소", callback_data=f"cancel:{action_id}")
+                InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{action_id}")
             ],
         ]
 
@@ -309,12 +309,12 @@ class TelegramBotService:
 
         if action == "cancel":
             await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text("❌ 다운로드가 취소되었습니다.")
+            await query.message.reply_text("❌ Download cancelled.")
             return
 
         if not urls:
             await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text("⚠️ 만료된 요청입니다. 링크를 다시 보내주세요.")
+            await query.message.reply_text("⚠️ Request expired. Please resend the link(s).")
             return
 
         metube = self._get_metube()
@@ -324,24 +324,24 @@ class TelegramBotService:
             await query.edit_message_reply_markup(reply_markup=None)
             res = await metube.add_download(url)
             if res.get("success"):
-                await query.message.reply_text("🚀 **MeTube에 다운로드 요청을 전송했습니다!**", parse_mode="Markdown")
+                await query.message.reply_text("🚀 **Download request sent to MeTube!**", parse_mode="Markdown")
             else:
-                await query.message.reply_text(f"❌ 다운로드 요청 실패: {res.get('error', '알 수 없는 오류')}")
+                await query.message.reply_text(f"❌ Download request failed: {res.get('error', 'Unknown error')}")
 
         elif action == "dl_bulk":
             await query.edit_message_reply_markup(reply_markup=None)
-            status_msg = await query.message.reply_text(f"⏳ {len(urls)}개 영상을 MeTube 큐에 등록하는 중...")
+            status_msg = await query.message.reply_text(f"⏳ Adding {len(urls)} video(s) to MeTube queue...")
             success_count, results = await metube.add_bulk_downloads(urls)
 
             if success_count == len(urls):
                 await status_msg.edit_text(
-                    f"🚀 **성공! {success_count}개 영상 모두 MeTube 큐에 등록 완료되었습니다!**",
+                    f"🚀 **Success! All {success_count} video(s) queued in MeTube!**",
                     parse_mode="Markdown",
                 )
             else:
                 fail_count = len(urls) - success_count
                 await status_msg.edit_text(
-                    f"⚠️ **{success_count}개 성공, {fail_count}개 실패**\nMeTube 상태를 확인해 주세요.",
+                    f"⚠️ **{success_count} succeeded, {fail_count} failed**\nPlease check MeTube status.",
                     parse_mode="Markdown",
                 )
 
