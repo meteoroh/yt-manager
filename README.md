@@ -179,20 +179,18 @@ Healthcheck endpoint (`{"status": "ok"}`).
 
 ## iOS Shortcut Integration
 
-1. **Receive Share Sheet Input**: Accept URLs from Safari, YouTube, Twitter, Instagram, or TikTok.
-2. **Get Contents of URL (POST)**:
-   - URL: `http://<NAS_IP>:8000/check-video`
-   - Method: `POST`
-   - Request Body (JSON):
-     - `url`: `[Shortcut Input]`
-     - `auto_download`: `false`
-3. **Condition Flow**:
-   - If `exists` is `true`:
-     - Show Notification: `[message]` (e.g., *"Video already exists. (Location: /media/IU/Good Day [youtube-dQw4w9WgXcQ].mp4)"*)
-   - If `exists` is `false`:
-     - Choose from Menu: *"Video is not saved. Download now via MeTube?"*
-       - [Download]: Call `POST http://<NAS_IP>:8000/download`.
-       - [Dismiss]: Do nothing.
+You can install the ready-to-use iOS Shortcut directly via iCloud:
+
+👉 **[Download Official iOS Shortcut (iCloud)](https://www.icloud.com/shortcuts/f6ee5f2f19ae4db6bbfe86c982072a99)**
+
+### Shortcut Workflow
+1. **Share Sheet Trigger**: Share any video link from YouTube, Safari, Twitter/X, Instagram, or TikTok.
+2. **Verify Ownership (`POST /check-video`)**:
+   - Sends the video URL to `https://<YOUR_DOMAIN>/check-video`.
+   - If already saved: Displays notification with folder name and file name.
+3. **Interactive Download (`POST /download`)**:
+   - If not saved: Prompts to download via MeTube.
+   - If confirmed: Submits download to MeTube and reports real-time success or MeTube error details.
 
 ---
 
