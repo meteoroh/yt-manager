@@ -97,9 +97,10 @@ def detect_platform(
     norm_ext = ext.lower()
     clean_prefix = prefix.strip()
 
-    # 2. Instagram: starts with 'Video by ', 'Post by ', 'Photo by ', 'Reel by '
-    if clean_prefix.lower().startswith(
-        ("video by ", "post by ", "photo by ", "reel by ")
+    # 2. Instagram: starts with 'Video by ', 'Post by ', 'Photo by ', 'Reel by ', or 'Video <number>' (carousel)
+    if (
+        clean_prefix.lower().startswith(("video by ", "post by ", "photo by ", "reel by "))
+        or re.match(r"^video\s+\d+", clean_prefix, re.IGNORECASE)
     ):
         return "instagram"
 
@@ -111,10 +112,7 @@ def detect_platform(
     if cand_id.isdigit() and (17 <= len(cand_id) <= 20) and (" - " not in prefix):
         return "tiktok"
 
-    # 5. YouTube: webm extension OR standard 11-char base64url ID
-    if norm_ext == ".webm":
-        return "youtube"
-
+    # 5. YouTube: standard 11-char base64url ID (webm extension alone is not enough, must validate ID)
     if len(cand_id) == 11 and re.match(r"^[a-zA-Z0-9_-]{11}$", cand_id):
         return "youtube"
 

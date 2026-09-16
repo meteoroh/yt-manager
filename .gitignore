@@ -37,3 +37,6 @@ Icon
 .vscode/
 *.swp
 *~
+
+# Temporary lists or exports
+list.txt

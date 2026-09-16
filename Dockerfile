@@ -14,7 +14,6 @@ ENV PYTHONUNBUFFERED=1
 # Copy project files and source
 COPY pyproject.toml uv.lock* README.md ./
 COPY src/ ./src/
-COPY tools/ ./tools/
 
 # Install dependencies and project into system python
 RUN uv pip install --system --no-cache .

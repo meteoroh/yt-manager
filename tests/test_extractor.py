@@ -24,16 +24,12 @@ def test_extract_from_filename_explicit_extractor():
     assert res5 == ("instagram", "CW123abcXYZ")
 
 
-def test_extract_from_filename_fallback():
-    # 11-char YouTube ID single bracket
-    res1 = extract_from_filename("뮤직비디오 [dQw4w9WgXcQ].mp4")
-    assert res1 == ("youtube", "dQw4w9WgXcQ")
-
-    # yt-dlp default trailing dash ID
-    res2 = extract_from_filename("뮤직비디오-dQw4w9WgXcQ.mp4")
-    assert res2 == ("youtube", "dQw4w9WgXcQ")
-
-    # Non-matching normal filenames
+def test_extract_from_filename_non_prefixed():
+    # Without explicit extractor prefix, all single bracket IDs must return None
+    assert extract_from_filename("뮤직비디오 [dQw4w9WgXcQ].mp4") is None
+    assert extract_from_filename("뮤직비디오-dQw4w9WgXcQ.mp4") is None
+    assert extract_from_filename("영상 [dp-0kWDkTj4].mp4") is None
+    assert extract_from_filename("영상 [dm_DIzMTbsQ].mp4") is None
     assert extract_from_filename("무제_문서.mp4") is None
     assert extract_from_filename("family_photo.jpg") is None
 

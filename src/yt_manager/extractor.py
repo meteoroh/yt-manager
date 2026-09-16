@@ -51,38 +51,30 @@ def normalize_extractor(extractor: str) -> str:
 def extract_from_filename(filename_or_path: str | Path) -> Optional[tuple[str, str]]:
     """
     Extract (extractor, video_id) from filename.
-    Supports:
-      1. Explicit extractor prefix:
-         - [extractor-id]   e.g., "Song [youtube-dQw4w9WgXcQ].mp4"
-         - [extractor id]   e.g., "Song [youtube dQw4w9WgXcQ].mp4"
-         - [extractor_id]   e.g., "Song [youtube_dQw4w9WgXcQ].mp4"
-      2. Single bracket id:
-         - [id] where id is 11 chars (YouTube) -> ('youtube', id)
-      3. Fallback standard yt-dlp:
-         - "-<11-char-id>.ext" at end of filename -> ('youtube', id)
+    Strictly supports explicit extractor prefixes:
+      - [extractor-id]   e.g., "Song [youtube-dQw4w9WgXcQ].mp4"
+      - [extractor id]   e.g., "Song [youtube dQw4w9WgXcQ].mp4"
+      - [extractor_id]   e.g., "Song [youtube_dQw4w9WgXcQ].mp4"
+    Returns None if no explicit valid extractor tag is present.
     """
     stem = Path(filename_or_path).stem
 
-    # Pattern 1: [extractor<sep>id]
-    bracket_match = re.search(r"\[([a-zA-Z0-9_-]+?)[- _]([a-zA-Z0-9_-]+?)\]$", stem)
-    if bracket_match:
-        cand_ext, cand_id = bracket_match.group(1), bracket_match.group(2)
-        norm_ext = normalize_extractor(cand_ext)
-        if norm_ext in KNOWN_EXTRACTORS or cand_ext.isalpha():
-            return norm_ext, cand_id
+    # Find the content inside the LAST brackets: "[...]"
+    bracket_match = re.search(r"\[([^\[\]]+)\]$", stem)
+    if not bracket_match:
+        return None
 
-    # Pattern 2: [id]
-    single_bracket_match = re.search(r"\[([a-zA-Z0-9_-]+)\]$", stem)
-    if single_bracket_match:
-        cand_id = single_bracket_match.group(1)
-        # If 11 characters (standard YouTube ID), assume youtube
-        if len(cand_id) == 11 and re.match(r"^[a-zA-Z0-9_-]{11}$", cand_id):
-            return "youtube", cand_id
+    content = bracket_match.group(1).strip()
 
-    # Pattern 3: yt-dlp default suffix "-<id>"
-    dash_match = re.search(r"-([a-zA-Z0-9_-]{11})$", stem)
-    if dash_match:
-        return "youtube", dash_match.group(1)
+    # Explicit extractor prefix: "[extractor<sep>id]"
+    sep_match = re.match(r"^([a-zA-Z0-9_-]+?)[- _]([a-zA-Z0-9_-]+)$", content)
+    if not sep_match:
+        return None
+
+    cand_ext, cand_id = sep_match.group(1), sep_match.group(2)
+    norm_ext = normalize_extractor(cand_ext)
+    if norm_ext in KNOWN_EXTRACTORS:
+        return norm_ext, cand_id
 
     return None
 

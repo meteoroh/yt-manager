@@ -49,7 +49,7 @@ environment:
 -o "%(title)s [%(extractor)s-%(id)s].%(ext)s"
 --download-archive "/Volumes/media/archive.txt"
 ```
-*(Note: Legacy files containing only 11-character `[id]` will still be recognized as YouTube automatically via fallback heuristics.)*
+*(Note: For legacy files containing only `[id]`, use `tools/migrate_filenames.py` to standardize them to `[extractor-id]`.)*
 
 ---
 
@@ -214,7 +214,7 @@ The Telegram bot uses **Long Polling**, which requires no router port-forwarding
 
 ---
 
-## Appendix: One-Time Filename Migration Tool (`tools/migrate_filenames.py`)
+## Appendix: One-Time Filename Migration Tool (`yt-migrate`)
 
 A safe utility to standardize legacy yt-dlp filenames (`[id]` $\rightarrow$ `[extractor-id]`):
 
@@ -226,12 +226,16 @@ A safe utility to standardize legacy yt-dlp filenames (`[id]` $\rightarrow$ `[ex
 
 - **Usage**:
   ```bash
+  # Inside Docker Container
   # 1. Preview changes (Default Dry-Run: no files changed)
-  docker exec -it yt-manager python tools/migrate_filenames.py /media
+  docker exec -it yt-manager yt-migrate /media
 
   # 2. Apply rename on actual disk
-  docker exec -it yt-manager python tools/migrate_filenames.py /media --apply
+  docker exec -it yt-manager yt-migrate /media --apply
 
   # 3. (Optional) Match against existing archive.txt for 100% exact mapping
-  docker exec -it yt-manager python tools/migrate_filenames.py /media --archive-file /media/archive.txt --apply
+  docker exec -it yt-manager yt-migrate /media --archive-file /media/archive.txt --apply
+
+  # Or locally via uv
+  uv run yt-migrate /path/to/media
   ```

@@ -37,7 +37,16 @@ def test_get_new_filename_detection():
     assert get_new_filename("정상 [youtube-dQw4w9WgXcQ].mp4", lookup) is None
     assert get_new_filename("정상 [tiktok-7123456789012345678].mp4", lookup) is None
 
-    # 6. Archive lookup priority
+    # 6. Non-video-id tags like [4K].webm should be skipped
+    assert get_new_filename("BLACKPINK LISA - CONCERT 'FUTW [4K].webm", lookup) is None
+
+    # 7. Instagram carousel (Video <number>)
+    ig_carousel_res = get_new_filename("Video 1 [DAX4aeNBZm8].mp4", lookup)
+    assert ig_carousel_res is not None
+    assert ig_carousel_res[0] == "Video 1 [instagram-DAX4aeNBZm8].mp4"
+    assert ig_carousel_res[1] == "instagram"
+
+    # 8. Archive lookup priority
     archive_lookup = {"7123456789012345678": "custom_platform"}
     custom_res = get_new_filename("영상 [7123456789012345678].mp4", archive_lookup)
     assert custom_res is not None
