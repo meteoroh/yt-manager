@@ -1,0 +1,39 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+
+# Environment files (NEVER commit secrets)
+.env
+.env.*
+!.env.example
+
+# Local SQLite databases & temporary media data
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+archive.txt
+*.tmp
+*.part
+*.ytdl
+
+# macOS / OS generated
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*~
