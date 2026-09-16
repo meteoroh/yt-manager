@@ -28,10 +28,30 @@ class MeTubeClient:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(endpoint, json=payload)
                 response.raise_for_status()
+
+                # Parse response body
+                data = None
+                try:
+                    data = response.json()
+                except Exception:
+                    data = response.text
+
+                # Check MeTube's internal status field (e.g. {"status": "error", "msg": "..."})
+                if isinstance(data, dict):
+                    status = data.get("status")
+                    if status and status != "ok":
+                        error_msg = data.get("msg") or data.get("error") or f"status: {status}"
+                        return {
+                            "success": False,
+                            "status_code": response.status_code,
+                            "error": f"MeTube error: {error_msg}",
+                            "data": data,
+                        }
+
                 return {
                     "success": True,
                     "status_code": response.status_code,
-                    "data": response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
+                    "data": data,
                 }
         except httpx.HTTPStatusError as e:
             return {

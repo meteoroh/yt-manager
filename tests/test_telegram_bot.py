@@ -101,3 +101,31 @@ async def test_metube_add_bulk_downloads():
         assert call_count == 3
     finally:
         httpx.AsyncClient.post = original_post
+
+
+@pytest.mark.asyncio
+async def test_metube_error_handling():
+    metube = MeTubeClient("http://mock-metube:8081")
+
+    # Case 1: MeTube returns HTTP 200 with status: error
+    async def mock_post_error(client_self, url, *args, **kwargs):
+        return httpx.Response(
+            200,
+            json={"status": "error", "msg": "Video is private or deleted"},
+            request=httpx.Request("POST", url),
+        )
+
+    import httpx
+    original_post = httpx.AsyncClient.post
+    try:
+        httpx.AsyncClient.post = mock_post_error
+        res = await metube.add_download("https://youtube.com/watch?v=private")
+        assert res["success"] is False
+        assert "Video is private or deleted" in res["error"]
+
+        # Bulk download should count it as failure
+        success_cnt, results = await metube.add_bulk_downloads(["https://youtube.com/watch?v=private"])
+        assert success_cnt == 0
+        assert results[0]["success"] is False
+    finally:
+        httpx.AsyncClient.post = original_post
