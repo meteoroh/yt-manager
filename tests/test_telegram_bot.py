@@ -129,3 +129,29 @@ async def test_metube_error_handling():
         assert results[0]["success"] is False
     finally:
         httpx.AsyncClient.post = original_post
+
+
+@pytest.mark.asyncio
+async def test_telegram_callback_query_auth():
+    from unittest.mock import AsyncMock, MagicMock
+    from yt_manager.telegram_bot import TelegramBotService
+
+    settings = Settings(telegram_allowed_users="12345")
+    service = TelegramBotService(settings)
+
+    # Unauthorized user clicks button
+    mock_query = AsyncMock()
+    mock_user = MagicMock()
+    mock_user.id = 99999  # Unauthorized
+
+    mock_update = MagicMock()
+    mock_update.effective_user = mock_user
+    mock_update.message = None
+    mock_update.callback_query = mock_query
+    mock_query.data = "dl_single:test1234"
+
+    await service.handle_callback_query(mock_update, MagicMock())
+
+    # Must answer with alert and not proceed
+    mock_query.answer.assert_awaited_once_with("⛔️ Access denied. (ID: 99999)", show_alert=True)
+    mock_query.edit_message_reply_markup.assert_not_awaited()

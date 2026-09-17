@@ -105,6 +105,11 @@ class TelegramBotService:
                     f"⛔️ Access denied.\n(Your Telegram ID: `{user.id}`)",
                     parse_mode="Markdown",
                 )
+            elif update.callback_query:
+                await update.callback_query.answer(
+                    f"⛔️ Access denied. (ID: {user.id})",
+                    show_alert=True,
+                )
             return False
         return True
 
@@ -158,10 +163,11 @@ class TelegramBotService:
             ),
         )
 
+        change_status = "Changes Synced" if stats.has_changes else "No Changes"
+        diff_text = f" (+{stats.added_files}, -{stats.deleted_files})" if stats.has_changes else ""
         await status_msg.edit_text(
-            f"✅ **Scan Complete!**\n\n"
-            f"• Total Files: **{stats.total_files:,}**\n"
-            f"• Deleted/Pruned: **{stats.deleted_files:,}**\n"
+            f"✅ **Scan Complete!** ({change_status})\n\n"
+            f"• Total Files: **{stats.total_files:,}**{diff_text}\n"
             f"• Duration: **{stats.duration_seconds}s**",
             parse_mode="Markdown",
         )
@@ -294,6 +300,8 @@ class TelegramBotService:
         )
 
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._check_auth(update):
+            return
         query = update.callback_query
         if not query:
             return

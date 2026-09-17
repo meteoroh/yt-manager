@@ -154,3 +154,101 @@ def test_scanner_exclusions(tmp_path: Path):
     assert db.find_by_id("youtube", "vid_private") is None
     assert db.find_by_id("youtube", "vid_sample") is None
 
+
+def test_scanner_dirty_check_skips_disk_writes(tmp_path: Path):
+    media_dir = tmp_path / "media"
+    media_dir.mkdir()
+    archive_path = tmp_path / "archive.txt"
+    db_path = tmp_path / "test_dirty.db"
+    db = Database(db_path)
+
+    # 1. First scan with 1 file
+    f1 = media_dir / "Video 1 [youtube-v1].mp4"
+    f1.write_text("dummy")
+
+    stats1 = sync_disks_to_db_and_archive(
+        directories=[media_dir],
+        archive_file_path=archive_path,
+        db=db,
+    )
+    assert stats1.has_changes is True
+    assert stats1.total_files == 1
+    assert stats1.added_files == 1
+    assert stats1.deleted_files == 0
+    assert archive_path.exists()
+
+    archive_mtime_before = archive_path.stat().st_mtime_ns
+
+    # 2. Second scan with NO file changes
+    stats2 = sync_disks_to_db_and_archive(
+        directories=[media_dir],
+        archive_file_path=archive_path,
+        db=db,
+    )
+    assert stats2.has_changes is False
+    assert stats2.total_files == 1
+    assert stats2.added_files == 0
+    assert stats2.deleted_files == 0
+
+    # archive.txt must NOT have been touched/overwritten
+    archive_mtime_after = archive_path.stat().st_mtime_ns
+    assert archive_mtime_before == archive_mtime_after
+
+    # 3. Third scan: Add new file -> changes detected
+    f2 = media_dir / "Video 2 [youtube-v2].mp4"
+    f2.write_text("dummy 2")
+
+    stats3 = sync_disks_to_db_and_archive(
+        directories=[media_dir],
+        archive_file_path=archive_path,
+        db=db,
+    )
+    assert stats3.has_changes is True
+    assert stats3.total_files == 2
+    assert stats3.added_files == 1
+    assert stats3.deleted_files == 0
+    assert archive_path.stat().st_mtime_ns != archive_mtime_before
+
+
+def test_simultaneous_add_and_delete(tmp_path: Path):
+    media_dir = tmp_path / "media"
+    media_dir.mkdir()
+    archive_path = tmp_path / "archive.txt"
+    db_path = tmp_path / "test_simultaneous.db"
+    db = Database(db_path)
+
+    f1 = media_dir / "Song 1 [youtube-s1].mp4"
+    f2 = media_dir / "Song 2 [youtube-s2].mp4"
+    f1.write_text("s1")
+    f2.write_text("s2")
+
+    # Initial scan: 2 files added
+    stats1 = sync_disks_to_db_and_archive(
+        directories=[media_dir],
+        archive_file_path=archive_path,
+        db=db,
+    )
+    assert stats1.total_files == 2
+    assert stats1.added_files == 2
+    assert stats1.deleted_files == 0
+
+    # Delete 1 file and add 1 new file simultaneously
+    # Total count stays at 2, but added=1, deleted=1
+    f1.unlink()
+    f3 = media_dir / "Song 3 [youtube-s3].mp4"
+    f3.write_text("s3")
+
+    stats2 = sync_disks_to_db_and_archive(
+        directories=[media_dir],
+        archive_file_path=archive_path,
+        db=db,
+    )
+    assert stats2.total_files == 2
+    assert stats2.added_files == 1
+    assert stats2.deleted_files == 1
+    assert stats2.has_changes is True
+
+    assert db.find_by_id("youtube", "s1") is None
+    assert db.find_by_id("youtube", "s2") is not None
+    assert db.find_by_id("youtube", "s3") is not None
+

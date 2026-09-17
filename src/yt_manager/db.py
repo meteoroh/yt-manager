@@ -1,6 +1,13 @@
 import sqlite3
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
+
+
+class SyncResult(NamedTuple):
+    total_count: int
+    added_count: int
+    deleted_count: int
+    has_changes: bool
 
 
 class Database:
@@ -17,6 +24,9 @@ class Database:
 
     def _init_db(self) -> None:
         with self._get_connection() as conn:
+            # Optimize for low disk I/O and prevent heavy rollback journals
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS media (
@@ -52,20 +62,44 @@ class Database:
             row = cursor.fetchone()
             return (row["extractor"], row["file_path"]) if row else None
 
-    def sync_all(self, records: list[tuple[str, str, str]]) -> tuple[int, int]:
+    def get_all_records_map(self) -> dict[tuple[str, str], str]:
+        """Look up all (extractor, video_id) -> file_path mappings currently in DB."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT extractor, video_id, file_path FROM media")
+            return {
+                (row["extractor"], row["video_id"]): row["file_path"]
+                for row in cursor.fetchall()
+            }
+
+    def sync_all(self, records: list[tuple[str, str, str]]) -> SyncResult:
         """
         Synchronize the database with the current disk state atomically.
         records: list of (extractor, video_id, file_path)
-        Returns: (active_count, deleted_count)
+        Returns: SyncResult(total_count, added_count, deleted_count, has_changes)
         """
-        # Normalize extractor to lowercase
-        norm_records = [(ext.lower(), vid, path) for ext, vid, path in records]
+        # Normalize extractor to lowercase and map by (extractor, video_id)
+        new_map: dict[tuple[str, str], str] = {
+            (ext.lower(), vid): path for ext, vid, path in records
+        }
+
+        # Check existing records in DB (pure read-only query)
+        current_map = self.get_all_records_map()
+
+        # Dirty check: if disk state matches DB state exactly, skip ALL disk writes!
+        if current_map == new_map:
+            return SyncResult(
+                total_count=len(current_map),
+                added_count=0,
+                deleted_count=0,
+                has_changes=False,
+            )
+
+        added_count = len(new_map.keys() - current_map.keys())
+        deleted_count = len(current_map.keys() - new_map.keys())
+
+        norm_records = [(ext, vid, path) for (ext, vid), path in new_map.items()]
 
         with self._get_connection() as conn:
-            # Check current total count before sync
-            before_cursor = conn.execute("SELECT COUNT(*) FROM media")
-            before_count = before_cursor.fetchone()[0]
-
             conn.execute(
                 """
                 CREATE TEMPORARY TABLE current_scan (
@@ -83,7 +117,7 @@ class Database:
             )
 
             # Delete records from media that are not in current_scan
-            del_cursor = conn.execute(
+            conn.execute(
                 """
                 DELETE FROM media
                 WHERE (extractor, video_id) NOT IN (
@@ -91,7 +125,6 @@ class Database:
                 )
                 """
             )
-            deleted_count = del_cursor.rowcount
 
             # Insert or replace from current_scan to media
             conn.execute(
@@ -107,7 +140,12 @@ class Database:
             after_cursor = conn.execute("SELECT COUNT(*) FROM media")
             after_count = after_cursor.fetchone()[0]
 
-            return after_count, deleted_count
+            return SyncResult(
+                total_count=after_count,
+                added_count=added_count,
+                deleted_count=deleted_count,
+                has_changes=True,
+            )
 
     def get_all_archives(self) -> list[tuple[str, str]]:
         """Return all (extractor, video_id) pairs sorted for archive.txt."""

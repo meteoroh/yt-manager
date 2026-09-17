@@ -30,9 +30,14 @@ def run_scheduled_scan():
             exclude_dirs=settings.parsed_exclude_dirs,
             exclude_patterns=settings.parsed_exclude_patterns,
         )
-        logger.info(
-            f"Scheduled scan completed in {stats.duration_seconds}s. Total files: {stats.total_files}, Deleted: {stats.deleted_files}"
-        )
+        if stats.has_changes:
+            logger.info(
+                f"Scheduled scan completed in {stats.duration_seconds}s. Total files: {stats.total_files} (+{stats.added_files}, -{stats.deleted_files})"
+            )
+        else:
+            logger.info(
+                f"Scheduled scan completed in {stats.duration_seconds}s. Total files: {stats.total_files} (no changes)"
+            )
     except Exception as e:
         logger.error(f"Error during scheduled disk scan: {e}", exc_info=True)
 

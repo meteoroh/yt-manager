@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     metube_url: str = "http://localhost:8081"
 
     # Background scanner
-    scan_interval_minutes: int = 15
+    scan_interval_minutes: int = 120
     auto_scan_on_startup: bool = True
 
     # Exclusion settings (comma-separated strings)

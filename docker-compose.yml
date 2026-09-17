@@ -23,7 +23,7 @@ services:
       - METUBE_URL=http://metube:8081
 
       # Scan interval (in minutes)
-      - SCAN_INTERVAL_MINUTES=15
+      - SCAN_INTERVAL_MINUTES=120
       - AUTO_SCAN_ON_STARTUP=true
 
       # Scan exclusion settings (comma-separated)

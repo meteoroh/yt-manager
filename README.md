@@ -72,7 +72,7 @@ DB_PATH=/media/yt_manager.db
 METUBE_URL=http://localhost:8081
 
 # Background scanner
-SCAN_INTERVAL_MINUTES=15
+SCAN_INTERVAL_MINUTES=120
 AUTO_SCAN_ON_STARTUP=true
 
 # Scan exclusions (comma-separated)
@@ -168,6 +168,18 @@ docker compose logs -f yt-manager
 
 ### 3. `POST /scan` (Trigger Disk Scan)
 Scans disks immediately, syncs the DB, and dumps `archive.txt`.
+- **Response**:
+  ```json
+  {
+    "status": "ok",
+    "total_files": 1250,
+    "added_files": 2,
+    "deleted_files": 1,
+    "duration_seconds": 0.0452,
+    "last_scanned_at": "2026-09-17T15:00:00.000000+00:00",
+    "has_changes": true
+  }
+  ```
 
 ### 4. `GET /status` (Server Status)
 Returns total media count, last scan timestamp, and scan duration.

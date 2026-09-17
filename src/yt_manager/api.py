@@ -46,9 +46,11 @@ class DownloadResponse(BaseModel):
 class ScanResponse(BaseModel):
     status: str
     total_files: int
-    deleted_files: int
+    added_files: int = 0
+    deleted_files: int = 0
     duration_seconds: float
     last_scanned_at: Optional[str]
+    has_changes: bool = False
 
 
 class StatusResponse(BaseModel):
@@ -160,9 +162,11 @@ def trigger_scan(
     return ScanResponse(
         status="ok",
         total_files=stats.total_files,
+        added_files=stats.added_files,
         deleted_files=stats.deleted_files,
         duration_seconds=stats.duration_seconds,
         last_scanned_at=stats.last_scanned_at,
+        has_changes=stats.has_changes,
     )
 
 

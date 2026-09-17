@@ -52,8 +52,10 @@ IGNORE_MARKER_FILES = {
 class ScanStats:
     last_scanned_at: Optional[str] = None
     total_files: int = 0
+    added_files: int = 0
     deleted_files: int = 0
     duration_seconds: float = 0.0
+    has_changes: bool = False
 
 
 # In-memory latest scan stats for /status reporting
@@ -191,27 +193,34 @@ def sync_disks_to_db_and_archive(
                 )
             )
 
-    # 2. Sync to DB
-    total_count, deleted_count = db.sync_all(all_records)
+    # 2. Sync to DB (skips write transaction if unchanged)
+    sync_result = db.sync_all(all_records)
+    total_count = sync_result.total_count
+    added_count = sync_result.added_count
+    deleted_count = sync_result.deleted_count
+    has_changes = sync_result.has_changes
 
-    # 3. Atomically dump archive.txt
-    archive_pairs = db.get_all_archives()
+    # 3. Atomically dump archive.txt ONLY IF changes were detected or archive.txt does not exist
     archive_file_path = Path(archive_file_path)
-    archive_file_path.parent.mkdir(parents=True, exist_ok=True)
+    if has_changes or not archive_file_path.exists():
+        archive_pairs = db.get_all_archives()
+        archive_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    temp_archive = archive_file_path.with_name(f"{archive_file_path.name}.tmp")
-    with open(temp_archive, "w", encoding="utf-8") as f:
-        for ext, vid in archive_pairs:
-            f.write(f"{ext} {vid}\n")
+        temp_archive = archive_file_path.with_name(f"{archive_file_path.name}.tmp")
+        with open(temp_archive, "w", encoding="utf-8") as f:
+            for ext, vid in archive_pairs:
+                f.write(f"{ext} {vid}\n")
 
-    os.replace(temp_archive, archive_file_path)
+        os.replace(temp_archive, archive_file_path)
 
     elapsed = round(time.perf_counter() - start_time, 4)
 
     # 4. Update memory stats
     current_stats.last_scanned_at = datetime.now(timezone.utc).isoformat()
     current_stats.total_files = total_count
+    current_stats.added_files = added_count
     current_stats.deleted_files = deleted_count
     current_stats.duration_seconds = elapsed
+    current_stats.has_changes = has_changes
 
     return current_stats
