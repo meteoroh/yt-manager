@@ -181,7 +181,7 @@ Healthcheck endpoint (`{"status": "ok"}`).
 
 You can install the ready-to-use iOS Shortcut directly via iCloud:
 
-👉 **[Download Official iOS Shortcut (iCloud)](https://www.icloud.com/shortcuts/f6ee5f2f19ae4db6bbfe86c982072a99)**
+👉 **[Download Official iOS Shortcut (iCloud)](https://www.icloud.com/shortcuts/d7f73ccd0af945c8993fea6514146167)**
 
 ### Shortcut Workflow
 1. **Share Sheet Trigger**: Share any video link from YouTube, Safari, Twitter/X, Instagram, or TikTok.
