@@ -153,7 +153,7 @@ async def test_telegram_callback_query_auth():
     await service.handle_callback_query(mock_update, MagicMock())
 
     # Must answer with alert and not proceed
-    mock_query.answer.assert_awaited_once_with("⛔️ Access denied. (ID: 99999)", show_alert=True)
+    mock_query.answer.assert_awaited_once_with("Access denied. (ID: 99999)", show_alert=True)
     mock_query.edit_message_reply_markup.assert_not_awaited()
 
 
@@ -176,4 +176,5 @@ async def test_process_and_respond_with_underscore_url(tmp_path: Path):
     mock_update.message.reply_text.assert_awaited_once()
     called_args, called_kwargs = mock_update.message.reply_text.call_args
     assert called_kwargs.get("parse_mode") == "HTML"
-    assert "https://youtu.be/olpfpCoh3xw?si=fRSdGeD0_UQH1d8e" in called_args[0]
+    assert "olpfpCoh3xw" in called_args[0]
+    assert "• Platform: <b>YOUTUBE</b>" in called_args[0]

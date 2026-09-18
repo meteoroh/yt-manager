@@ -214,7 +214,7 @@ The Telegram bot uses **Long Polling**, which requires no router port-forwarding
 1. **Single & Bulk URL Detection**:
    - Send multiple links in a single message or upload a `.txt` file containing URLs line by line.
 2. **One-Click Bulk Download**:
-   - If missing videos are detected, the bot provides a `[⬇️ Download N Missing Videos]` inline button to queue all missing URLs to MeTube simultaneously.
+   - If missing videos are detected, the bot provides a `[Download (N)]` inline button to queue all missing URLs to MeTube simultaneously.
 3. **Commands**:
    - `/scan`: Instantly triggers a NAS disk rescan and `archive.txt` sync.
    - `/status`: Displays current total media count and system health.

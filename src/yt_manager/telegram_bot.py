@@ -103,12 +103,12 @@ class TelegramBotService:
         if not is_user_allowed(user.id, self.settings):
             if update.message:
                 await update.message.reply_text(
-                    f"⛔️ Access denied.\n(Your Telegram ID: <code>{user.id}</code>)",
+                    f"Access denied.\n(Your Telegram ID: <code>{user.id}</code>)",
                     parse_mode="HTML",
                 )
             elif update.callback_query:
                 await update.callback_query.answer(
-                    f"⛔️ Access denied. (ID: {user.id})",
+                    f"Access denied. (ID: {user.id})",
                     show_alert=True,
                 )
             return False
@@ -119,15 +119,15 @@ class TelegramBotService:
             return
         user_id = update.effective_user.id if update.effective_user else 0
         text = (
-            f"👋 Hello! Welcome to <b>yt-manager bot</b>.\n\n"
-            f"📌 <b>How to use</b>:\n"
+            f"Hello! Welcome to <b>yt-manager bot</b>.\n\n"
+            f"<b>How to use</b>:\n"
             f"• Send one or more links from YouTube, Twitter/X, Instagram, or TikTok.\n"
             f"• You can also send a <code>.txt</code> file containing links.\n"
             f"• The bot checks if videos are already saved, and lets you download missing ones to MeTube with one click.\n\n"
-            f"⚙️ <b>Commands</b>:\n"
+            f"<b>Commands</b>:\n"
             f"• <code>/scan</code> - Scan NAS disk & sync archive immediately\n"
             f"• <code>/status</code> - Check server status & media count\n\n"
-            f"🆔 Your Telegram ID: <code>{user_id}</code>"
+            f"Your Telegram ID: <code>{user_id}</code>"
         )
         await update.message.reply_text(text, parse_mode="HTML")
 
@@ -137,7 +137,7 @@ class TelegramBotService:
         db = self._get_db()
         stats = get_scan_stats()
         text = (
-            f"📊 <b>yt-manager System Status</b>\n\n"
+            f"<b>yt-manager System Status</b>\n\n"
             f"• Total Saved Media: <b>{db.count():,}</b>\n"
             f"• Last Scanned At: <code>{html.escape(stats.last_scanned_at or 'Never')}</code>\n"
             f"• Scan Duration: <code>{stats.duration_seconds}s</code>\n"
@@ -149,7 +149,7 @@ class TelegramBotService:
     async def handle_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._check_auth(update):
             return
-        status_msg = await update.message.reply_text("🔄 Scanning NAS disk...")
+        status_msg = await update.message.reply_text("Scanning NAS disk...")
         db = self._get_db()
 
         loop = asyncio.get_running_loop()
@@ -167,7 +167,7 @@ class TelegramBotService:
         change_status = "Changes Synced" if stats.has_changes else "No Changes"
         diff_text = f" (+{stats.added_files}, -{stats.deleted_files})" if stats.has_changes else ""
         await status_msg.edit_text(
-            f"✅ <b>Scan Complete!</b> ({change_status})\n\n"
+            f"<b>Scan Complete!</b> ({change_status})\n\n"
             f"• Total Files: <b>{stats.total_files:,}</b>{diff_text}\n"
             f"• Duration: <b>{stats.duration_seconds}s</b>",
             parse_mode="HTML",
@@ -190,7 +190,7 @@ class TelegramBotService:
         if not doc or not doc.file_name or not doc.file_name.lower().endswith(".txt"):
             return
 
-        status_msg = await update.message.reply_text("📄 Extracting links from text file...")
+        status_msg = await update.message.reply_text("Extracting links from text file...")
         try:
             tg_file = await doc.get_file()
             byte_array = await tg_file.download_as_bytearray()
@@ -198,14 +198,14 @@ class TelegramBotService:
             urls = extract_urls_from_text(content)
 
             if not urls:
-                await status_msg.edit_text("⚠️ No valid links found in the file.")
+                await status_msg.edit_text("No valid links found in the file.")
                 return
 
             await status_msg.delete()
             await self._process_and_respond(update, urls)
         except Exception as e:
             logger.error(f"Error reading document: {e}", exc_info=True)
-            await status_msg.edit_text(f"❌ Error processing file: {e}")
+            await status_msg.edit_text(f"Error processing file: {e}")
 
     async def _process_and_respond(self, update: Update, urls: list[str]):
         db = self._get_db()
@@ -216,7 +216,7 @@ class TelegramBotService:
             if found:
                 item = found[0]
                 text = (
-                    f"✅ <b>Video already saved!</b>\n\n"
+                    f"<b>Video already saved!</b>\n\n"
                     f"• Platform: <b>{html.escape(item['extractor'].upper())}</b>\n"
                     f"• ID: <code>{html.escape(item['video_id'])}</code>\n"
                     f"• Location:\n<code>{html.escape(item['file_path'])}</code>"
@@ -227,18 +227,15 @@ class TelegramBotService:
                 action_id = str(uuid.uuid4())[:8]
                 ACTION_CACHE[action_id] = [item["url"]]
 
-                escaped_url = html.escape(item["url"])
                 text = (
-                    f"❌ <b>Video not saved.</b>\n\n"
+                    f"<b>Video not saved.</b>\n\n"
                     f"• Platform: <b>{html.escape(item['extractor'].upper())}</b>\n"
-                    f"• ID: <code>{html.escape(item['video_id'])}</code>\n"
-                    f"• URL: {escaped_url}\n\n"
+                    f"• ID: <code>{html.escape(item['video_id'])}</code>\n\n"
                     f"Download now via MeTube?"
                 )
                 keyboard = [
                     [
-                        InlineKeyboardButton("⬇️ Download via MeTube", callback_data=f"dl_single:{action_id}"),
-                        InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{action_id}"),
+                        InlineKeyboardButton("Download", callback_data=f"dl_single:{action_id}"),
                     ]
                 ]
                 await update.message.reply_text(
@@ -247,14 +244,14 @@ class TelegramBotService:
                     parse_mode="HTML",
                 )
             else:
-                await update.message.reply_text("⚠️ Could not extract video ID from the provided URL.")
+                await update.message.reply_text("Could not extract video ID from the provided URL.")
             return
 
         # Case 2: Bulk URLs (2 or more)
-        report_lines = [f"📋 <b>Checked {len(urls)} link(s)</b>\n"]
+        report_lines = [f"<b>Checked {len(urls)} link(s)</b>\n"]
 
         if found:
-            report_lines.append(f"✅ <b>Already Saved ({len(found)}):</b>")
+            report_lines.append(f"<b>Already Saved ({len(found)}):</b>")
             for item in found:
                 report_lines.append(
                     f"• [{html.escape(item['extractor'].upper())}] <code>{html.escape(item['video_id'])}</code>\n"
@@ -263,7 +260,7 @@ class TelegramBotService:
             report_lines.append("")
 
         if missing:
-            report_lines.append(f"❌ <b>Missing ({len(missing)}):</b>")
+            report_lines.append(f"<b>Missing ({len(missing)}):</b>")
             for item in missing:
                 report_lines.append(
                     f"• [{html.escape(item['extractor'].upper())}] <code>{html.escape(item['video_id'])}</code>"
@@ -271,7 +268,7 @@ class TelegramBotService:
             report_lines.append("")
 
         if invalid:
-            report_lines.append(f"⚠️ <b>Unrecognized ({len(invalid)}):</b>")
+            report_lines.append(f"<b>Unrecognized ({len(invalid)}):</b>")
             for u in invalid[:3]:
                 safe_u = html.escape(u[:40] + "..." if len(u) > 40 else u)
                 report_lines.append(f"• <code>{safe_u}</code>")
@@ -280,7 +277,7 @@ class TelegramBotService:
             report_lines.append("")
 
         if not missing:
-            report_lines.append("🎉 <b>All verified videos are already saved!</b>")
+            report_lines.append("<b>All verified videos are already saved!</b>")
             await update.message.reply_text("\n".join(report_lines), parse_mode="HTML")
             return
 
@@ -292,12 +289,9 @@ class TelegramBotService:
         keyboard = [
             [
                 InlineKeyboardButton(
-                    f"⬇️ Download all {len(missing)} missing video(s)",
+                    f"Download ({len(missing)})",
                     callback_data=f"dl_bulk:{action_id}",
                 )
-            ],
-            [
-                InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{action_id}")
             ],
         ]
 
@@ -325,12 +319,11 @@ class TelegramBotService:
 
         if action == "cancel":
             await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text("❌ Download cancelled.")
             return
 
         if not urls:
             await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text("⚠️ Request expired. Please resend the link(s).")
+            await query.message.reply_text("Request expired. Please resend the link(s).")
             return
 
         metube = self._get_metube()
@@ -340,24 +333,24 @@ class TelegramBotService:
             await query.edit_message_reply_markup(reply_markup=None)
             res = await metube.add_download(url)
             if res.get("success"):
-                await query.message.reply_text("🚀 <b>Download request sent to MeTube!</b>", parse_mode="HTML")
+                await query.message.reply_text("<b>Download request sent to MeTube!</b>", parse_mode="HTML")
             else:
-                await query.message.reply_text(f"❌ Download request failed: {html.escape(str(res.get('error', 'Unknown error')))}")
+                await query.message.reply_text(f"Download request failed: {html.escape(str(res.get('error', 'Unknown error')))}")
 
         elif action == "dl_bulk":
             await query.edit_message_reply_markup(reply_markup=None)
-            status_msg = await query.message.reply_text(f"⏳ Adding {len(urls)} video(s) to MeTube queue...")
+            status_msg = await query.message.reply_text(f"Adding {len(urls)} video(s) to MeTube queue...")
             success_count, results = await metube.add_bulk_downloads(urls)
 
             if success_count == len(urls):
                 await status_msg.edit_text(
-                    f"🚀 <b>Success! All {success_count} video(s) queued in MeTube!</b>",
+                    f"<b>Success! All {success_count} video(s) queued in MeTube!</b>",
                     parse_mode="HTML",
                 )
             else:
                 fail_count = len(urls) - success_count
                 await status_msg.edit_text(
-                    f"⚠️ <b>{success_count} succeeded, {fail_count} failed</b>\nPlease check MeTube status.",
+                    f"<b>{success_count} succeeded, {fail_count} failed</b>\nPlease check MeTube status.",
                     parse_mode="HTML",
                 )
 
