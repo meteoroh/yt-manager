@@ -15,6 +15,7 @@ KNOWN_EXTRACTORS = {
     "vimeo",
     "threads",
     "weibo",
+    "xiaohongshu",
 }
 
 # Regex patterns for fast URL matching
@@ -37,6 +38,15 @@ TIKTOK_URL_PATTERN = re.compile(
 INSTAGRAM_URL_PATTERN = re.compile(
     r"(?:https?://)?(?:www\.)?instagram\.com/(?:p|reel|reels|tv)/([a-zA-Z0-9_-]+)"
 )
+
+XIAOHONGSHU_URL_PATTERNS = [
+    re.compile(
+        r"(?:https?://)?(?:www\.)?(?:rednote|xiaohongshu)\.com/(?:explore|discovery/item)/([0-9a-f]{24})"
+    ),
+    re.compile(
+        r"(?:https?://)?(?:www\.)?(?:rednote|xiaohongshu)\.com/user/profile/[0-9a-f]{24}/([0-9a-f]{24})"
+    ),
+]
 
 
 def normalize_extractor(extractor: str) -> str:
@@ -99,7 +109,13 @@ def extract_from_url(url: str, use_ytdlp_fallback: bool = True) -> Optional[tupl
     if m:
         return "instagram", m.group(1)
 
-    # 5. yt-dlp fallback (for shortlinks like vt.tiktok.com, t.co, etc.)
+    # 5. Xiaohongshu / Rednote
+    for pat in XIAOHONGSHU_URL_PATTERNS:
+        m = pat.search(clean_url)
+        if m:
+            return "xiaohongshu", m.group(1)
+
+    # 6. yt-dlp fallback (for shortlinks like vt.tiktok.com, t.co, etc.)
     if use_ytdlp_fallback:
         try:
             ydl_opts = {

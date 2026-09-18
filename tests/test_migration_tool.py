@@ -49,11 +49,19 @@ def test_get_new_filename_detection():
     assert tt_res[0] == "챌린지 댄스 영상 [tiktok-7123456789012345678].mp4"
     assert tt_res[1] == "tiktok"
 
-    # 5. Already normalized (should be skipped)
+    # 5. Xiaohongshu / Rednote
+    xhs_res = get_new_filename("Rockstar Kaohsiung day2 251019 [68f6240d000000000700e5ad].mp4", lookup)
+    assert xhs_res is not None
+    assert xhs_res[0] == "Rockstar Kaohsiung day2 251019 [xiaohongshu-68f6240d000000000700e5ad].mp4"
+    assert xhs_res[1] == "xiaohongshu"
+    assert xhs_res[2] == "68f6240d000000000700e5ad"
+
+    # 6. Already normalized (should be skipped)
     assert get_new_filename("정상 [youtube-dQw4w9WgXcQ].mp4", lookup) is None
     assert get_new_filename("정상 [tiktok-7123456789012345678].mp4", lookup) is None
+    assert get_new_filename("Rockstar [xiaohongshu-68f6240d000000000700e5ad].mp4", lookup) is None
 
-    # 6. Non-video-id tags like [4K].webm should be skipped
+    # 7. Non-video-id tags like [4K].webm should be skipped
     assert get_new_filename("BLACKPINK LISA - CONCERT 'FUTW [4K].webm", lookup) is None
 
     # 7. Instagram carousel (Video <number>)

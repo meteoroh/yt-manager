@@ -7,6 +7,7 @@ Safely batch-converts legacy yt-dlp filenames into the standard [%(extractor)s-%
 - Twitter:   "Username - Title [id].mp4"     -> "Username - Title [twitter-id].mp4"
 - Instagram: "Video by username [id].mp4"   -> "Video by username [instagram-id].mp4"
 - TikTok:    "Title [id].mp4"                -> "Title [tiktok-id].mp4"
+- Rednote:   "Title [id].mp4"                -> "Title [xiaohongshu-id].mp4"
 
 Usage:
   # 1. Preview changes safely (Dry-run by default)
@@ -59,6 +60,7 @@ KNOWN_EXTRACTORS = {
     "vimeo",
     "threads",
     "weibo",
+    "xiaohongshu",
 }
 
 _EXTRACTOR_REGEX = "|".join(re.escape(e) for e in sorted(KNOWN_EXTRACTORS, key=len, reverse=True))
@@ -118,7 +120,11 @@ def detect_platform(
     if cand_id.isdigit() and (17 <= len(cand_id) <= 20) and (" - " not in prefix):
         return "tiktok"
 
-    # 5. YouTube: standard 11-char base64url ID (webm extension alone is not enough, must validate ID)
+    # 5. Xiaohongshu / Rednote: 24-char hex ID
+    if len(cand_id) == 24 and re.match(r"^[0-9a-f]{24}$", cand_id):
+        return "xiaohongshu"
+
+    # 6. YouTube: standard 11-char base64url ID (webm extension alone is not enough, must validate ID)
     if len(cand_id) == 11 and re.match(r"^[a-zA-Z0-9_-]{11}$", cand_id):
         return "youtube"
 

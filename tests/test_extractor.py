@@ -23,6 +23,10 @@ def test_extract_from_filename_explicit_extractor():
     res5 = extract_from_filename("인스타 릴스 [instagram_CW123abcXYZ].mp4")
     assert res5 == ("instagram", "CW123abcXYZ")
 
+    # Xiaohongshu / Rednote
+    res6 = extract_from_filename("Rockstar Kaohsiung [xiaohongshu-68f6240d000000000700e5ad].mp4")
+    assert res6 == ("xiaohongshu", "68f6240d000000000700e5ad")
+
 
 def test_extract_from_filename_non_prefixed():
     # Without explicit extractor prefix, all single bracket IDs must return None
@@ -74,6 +78,19 @@ def test_extract_from_url():
         "instagram",
         "CW123abcXYZ",
     )
+
+    # Xiaohongshu / Rednote
+    assert extract_from_url(
+        "https://www.rednote.com/discovery/item/6aabdd60000000000d027fde?xsec_token=ABgZCUEncbM64txD3kxPPMmHTIwIy4l__t1POmrsqdhcI=&xsec_source="
+    ) == ("xiaohongshu", "6aabdd60000000000d027fde")
+
+    assert extract_from_url(
+        "https://www.rednote.com/user/profile/631db090000000002302781f/6aabdd60000000000d027fde?xsec_token=ABVL2IsUYg9sjW9rU4TkodDGxdqXRgfma3WVh7ARSe-kg=&xsec_source=pc_user"
+    ) == ("xiaohongshu", "6aabdd60000000000d027fde")
+
+    assert extract_from_url(
+        "https://www.xiaohongshu.com/explore/6aabdd60000000000d027fde"
+    ) == ("xiaohongshu", "6aabdd60000000000d027fde")
     assert extract_from_url("https://www.instagram.com/p/CW123abcXYZ/") == (
         "instagram",
         "CW123abcXYZ",
