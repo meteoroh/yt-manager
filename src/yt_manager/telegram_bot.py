@@ -1,4 +1,5 @@
 import asyncio
+import html
 import io
 import logging
 import re
@@ -102,8 +103,8 @@ class TelegramBotService:
         if not is_user_allowed(user.id, self.settings):
             if update.message:
                 await update.message.reply_text(
-                    f"⛔️ Access denied.\n(Your Telegram ID: `{user.id}`)",
-                    parse_mode="Markdown",
+                    f"⛔️ Access denied.\n(Your Telegram ID: <code>{user.id}</code>)",
+                    parse_mode="HTML",
                 )
             elif update.callback_query:
                 await update.callback_query.answer(
@@ -118,17 +119,17 @@ class TelegramBotService:
             return
         user_id = update.effective_user.id if update.effective_user else 0
         text = (
-            f"👋 Hello! Welcome to **yt-manager bot**.\n\n"
-            f"📌 **How to use**:\n"
+            f"👋 Hello! Welcome to <b>yt-manager bot</b>.\n\n"
+            f"📌 <b>How to use</b>:\n"
             f"• Send one or more links from YouTube, Twitter/X, Instagram, or TikTok.\n"
-            f"• You can also send a `.txt` file containing links.\n"
+            f"• You can also send a <code>.txt</code> file containing links.\n"
             f"• The bot checks if videos are already saved, and lets you download missing ones to MeTube with one click.\n\n"
-            f"⚙️ **Commands**:\n"
-            f"• `/scan` - Scan NAS disk & sync archive immediately\n"
-            f"• `/status` - Check server status & media count\n\n"
-            f"🆔 Your Telegram ID: `{user_id}`"
+            f"⚙️ <b>Commands</b>:\n"
+            f"• <code>/scan</code> - Scan NAS disk & sync archive immediately\n"
+            f"• <code>/status</code> - Check server status & media count\n\n"
+            f"🆔 Your Telegram ID: <code>{user_id}</code>"
         )
-        await update.message.reply_text(text, parse_mode="Markdown")
+        await update.message.reply_text(text, parse_mode="HTML")
 
     async def handle_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._check_auth(update):
@@ -136,14 +137,14 @@ class TelegramBotService:
         db = self._get_db()
         stats = get_scan_stats()
         text = (
-            f"📊 **yt-manager System Status**\n\n"
-            f"• Total Saved Media: **{db.count():,}**\n"
-            f"• Last Scanned At: `{stats.last_scanned_at or 'Never'}`\n"
-            f"• Scan Duration: `{stats.duration_seconds}s`\n"
-            f"• Media Directory: `{self.settings.media_dir}`\n"
-            f"• MeTube URL: `{self.settings.metube_url}`"
+            f"📊 <b>yt-manager System Status</b>\n\n"
+            f"• Total Saved Media: <b>{db.count():,}</b>\n"
+            f"• Last Scanned At: <code>{html.escape(stats.last_scanned_at or 'Never')}</code>\n"
+            f"• Scan Duration: <code>{stats.duration_seconds}s</code>\n"
+            f"• Media Directory: <code>{html.escape(str(self.settings.media_dir))}</code>\n"
+            f"• MeTube URL: <code>{html.escape(self.settings.metube_url)}</code>"
         )
-        await update.message.reply_text(text, parse_mode="Markdown")
+        await update.message.reply_text(text, parse_mode="HTML")
 
     async def handle_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._check_auth(update):
@@ -166,10 +167,10 @@ class TelegramBotService:
         change_status = "Changes Synced" if stats.has_changes else "No Changes"
         diff_text = f" (+{stats.added_files}, -{stats.deleted_files})" if stats.has_changes else ""
         await status_msg.edit_text(
-            f"✅ **Scan Complete!** ({change_status})\n\n"
-            f"• Total Files: **{stats.total_files:,}**{diff_text}\n"
-            f"• Duration: **{stats.duration_seconds}s**",
-            parse_mode="Markdown",
+            f"✅ <b>Scan Complete!</b> ({change_status})\n\n"
+            f"• Total Files: <b>{stats.total_files:,}</b>{diff_text}\n"
+            f"• Duration: <b>{stats.duration_seconds}s</b>",
+            parse_mode="HTML",
         )
 
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -215,22 +216,23 @@ class TelegramBotService:
             if found:
                 item = found[0]
                 text = (
-                    f"✅ **Video already saved!**\n\n"
-                    f"• Platform: **{item['extractor'].upper()}**\n"
-                    f"• ID: `{item['video_id']}`\n"
-                    f"• Location:\n`{item['file_path']}`"
+                    f"✅ <b>Video already saved!</b>\n\n"
+                    f"• Platform: <b>{html.escape(item['extractor'].upper())}</b>\n"
+                    f"• ID: <code>{html.escape(item['video_id'])}</code>\n"
+                    f"• Location:\n<code>{html.escape(item['file_path'])}</code>"
                 )
-                await update.message.reply_text(text, parse_mode="Markdown")
+                await update.message.reply_text(text, parse_mode="HTML")
             elif missing:
                 item = missing[0]
                 action_id = str(uuid.uuid4())[:8]
                 ACTION_CACHE[action_id] = [item["url"]]
 
+                escaped_url = html.escape(item["url"])
                 text = (
-                    f"❌ **Video not saved.**\n\n"
-                    f"• Platform: **{item['extractor'].upper()}**\n"
-                    f"• ID: `{item['video_id']}`\n"
-                    f"• URL: {item['url']}\n\n"
+                    f"❌ <b>Video not saved.</b>\n\n"
+                    f"• Platform: <b>{html.escape(item['extractor'].upper())}</b>\n"
+                    f"• ID: <code>{html.escape(item['video_id'])}</code>\n"
+                    f"• URL: {escaped_url}\n\n"
                     f"Download now via MeTube?"
                 )
                 keyboard = [
@@ -242,38 +244,44 @@ class TelegramBotService:
                 await update.message.reply_text(
                     text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode="Markdown",
+                    parse_mode="HTML",
                 )
             else:
                 await update.message.reply_text("⚠️ Could not extract video ID from the provided URL.")
             return
 
         # Case 2: Bulk URLs (2 or more)
-        report_lines = [f"📋 **Checked {len(urls)} link(s)**\n"]
+        report_lines = [f"📋 <b>Checked {len(urls)} link(s)</b>\n"]
 
         if found:
-            report_lines.append(f"✅ **Already Saved ({len(found)}):**")
+            report_lines.append(f"✅ <b>Already Saved ({len(found)}):</b>")
             for item in found:
-                report_lines.append(f"• [{item['extractor'].upper()}] `{item['video_id']}`\n  └ `{item['file_path']}`")
+                report_lines.append(
+                    f"• [{html.escape(item['extractor'].upper())}] <code>{html.escape(item['video_id'])}</code>\n"
+                    f"  └ <code>{html.escape(item['file_path'])}</code>"
+                )
             report_lines.append("")
 
         if missing:
-            report_lines.append(f"❌ **Missing ({len(missing)}):**")
+            report_lines.append(f"❌ <b>Missing ({len(missing)}):</b>")
             for item in missing:
-                report_lines.append(f"• [{item['extractor'].upper()}] `{item['video_id']}`")
+                report_lines.append(
+                    f"• [{html.escape(item['extractor'].upper())}] <code>{html.escape(item['video_id'])}</code>"
+                )
             report_lines.append("")
 
         if invalid:
-            report_lines.append(f"⚠️ **Unrecognized ({len(invalid)}):**")
+            report_lines.append(f"⚠️ <b>Unrecognized ({len(invalid)}):</b>")
             for u in invalid[:3]:
-                report_lines.append(f"• `{u[:40]}...`" if len(u) > 40 else f"• `{u}`")
+                safe_u = html.escape(u[:40] + "..." if len(u) > 40 else u)
+                report_lines.append(f"• <code>{safe_u}</code>")
             if len(invalid) > 3:
                 report_lines.append(f"• ...and {len(invalid)-3} more")
             report_lines.append("")
 
         if not missing:
-            report_lines.append("🎉 **All verified videos are already saved!**")
-            await update.message.reply_text("\n".join(report_lines), parse_mode="Markdown")
+            report_lines.append("🎉 <b>All verified videos are already saved!</b>")
+            await update.message.reply_text("\n".join(report_lines), parse_mode="HTML")
             return
 
         # Missing videos exist -> Provide bulk download button
@@ -296,7 +304,7 @@ class TelegramBotService:
         await update.message.reply_text(
             "\n".join(report_lines),
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -332,9 +340,9 @@ class TelegramBotService:
             await query.edit_message_reply_markup(reply_markup=None)
             res = await metube.add_download(url)
             if res.get("success"):
-                await query.message.reply_text("🚀 **Download request sent to MeTube!**", parse_mode="Markdown")
+                await query.message.reply_text("🚀 <b>Download request sent to MeTube!</b>", parse_mode="HTML")
             else:
-                await query.message.reply_text(f"❌ Download request failed: {res.get('error', 'Unknown error')}")
+                await query.message.reply_text(f"❌ Download request failed: {html.escape(str(res.get('error', 'Unknown error')))}")
 
         elif action == "dl_bulk":
             await query.edit_message_reply_markup(reply_markup=None)
@@ -343,14 +351,14 @@ class TelegramBotService:
 
             if success_count == len(urls):
                 await status_msg.edit_text(
-                    f"🚀 **Success! All {success_count} video(s) queued in MeTube!**",
-                    parse_mode="Markdown",
+                    f"🚀 <b>Success! All {success_count} video(s) queued in MeTube!</b>",
+                    parse_mode="HTML",
                 )
             else:
                 fail_count = len(urls) - success_count
                 await status_msg.edit_text(
-                    f"⚠️ **{success_count} succeeded, {fail_count} failed**\nPlease check MeTube status.",
-                    parse_mode="Markdown",
+                    f"⚠️ <b>{success_count} succeeded, {fail_count} failed</b>\nPlease check MeTube status.",
+                    parse_mode="HTML",
                 )
 
     async def start(self):
