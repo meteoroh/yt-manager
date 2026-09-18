@@ -2,6 +2,7 @@ import asyncio
 import html
 import io
 import logging
+from pathlib import Path
 import re
 import uuid
 from typing import Any, Optional
@@ -215,11 +216,12 @@ class TelegramBotService:
         if len(urls) == 1:
             if found:
                 item = found[0]
+                folder_path = str(Path(item["file_path"]).parent)
                 text = (
                     f"<b>Video already saved!</b>\n\n"
                     f"• Platform: <b>{html.escape(item['extractor'].upper())}</b>\n"
                     f"• ID: <code>{html.escape(item['video_id'])}</code>\n"
-                    f"• Location:\n<code>{html.escape(item['file_path'])}</code>"
+                    f"• Location: <code>{html.escape(folder_path)}</code>"
                 )
                 await update.message.reply_text(text, parse_mode="HTML")
             elif missing:
@@ -253,9 +255,10 @@ class TelegramBotService:
         if found:
             report_lines.append(f"<b>Already Saved ({len(found)}):</b>")
             for item in found:
+                folder_path = str(Path(item["file_path"]).parent)
                 report_lines.append(
                     f"• [{html.escape(item['extractor'].upper())}] <code>{html.escape(item['video_id'])}</code>\n"
-                    f"  └ <code>{html.escape(item['file_path'])}</code>"
+                    f"  └ <code>{html.escape(folder_path)}</code>"
                 )
             report_lines.append("")
 

@@ -134,10 +134,10 @@ docker compose logs -f yt-manager
     "exists": true,
     "extractor": "youtube",
     "video_id": "dQw4w9WgXcQ",
-    "folder": "IU",
+    "folder": "/media/IU",
     "file_name": "Good Day [youtube-dQw4w9WgXcQ].mp4",
     "file_path": "/media/IU/Good Day [youtube-dQw4w9WgXcQ].mp4",
-    "message": "Video already exists. (Location: /media/IU/Good Day [youtube-dQw4w9WgXcQ].mp4)",
+    "message": "Video already exists.",
     "download_triggered": false,
     "download_result": null
   }

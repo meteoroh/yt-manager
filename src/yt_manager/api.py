@@ -96,15 +96,15 @@ async def check_video(
 
     if file_path:
         p = Path(file_path)
-        folder_name = p.parent.name
+        folder_path = str(p.parent)
         return CheckVideoResponse(
             exists=True,
             extractor=extractor,
             video_id=video_id,
-            folder=folder_name,
+            folder=folder_path,
             file_name=p.name,
             file_path=file_path,
-            message=f"Video already exists. (Location: {file_path})",
+            message="Video already exists.",
         )
 
     # Not found

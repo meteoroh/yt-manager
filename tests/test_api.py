@@ -78,8 +78,8 @@ def test_api_check_video_and_scan(test_env):
     assert data2["exists"] is True
     assert data2["extractor"] == "youtube"
     assert data2["video_id"] == "dQw4w9WgXcQ"
-    assert data2["folder"] == "아이유"
-    assert "Video already exists" in data2["message"]
+    assert data2["folder"] == str(test_env["person_dir"].resolve())
+    assert data2["message"] == "Video already exists."
 
     # 4. Check status
     status_resp = client.get("/status")
