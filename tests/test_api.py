@@ -105,6 +105,15 @@ def test_api_check_video_and_scan(test_env):
     assert health_resp.status_code == 200
     assert health_resp.json() == {"status": "ok"}
 
+    # Verify HealthCheckFilter silences /health log records
+    import logging
+    from yt_manager.main import HealthCheckFilter
+    filt = HealthCheckFilter()
+    rec_health = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, '127.0.0.1 - "GET /health HTTP/1.1" 200 OK', (), None)
+    rec_other = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, '127.0.0.1 - "GET /status HTTP/1.1" 200 OK', (), None)
+    assert filt.filter(rec_health) is False
+    assert filt.filter(rec_other) is True
+
     # 6. Verify request history recorded from check-video calls
     hist_resp = client.get("/history")
     assert hist_resp.status_code == 200
