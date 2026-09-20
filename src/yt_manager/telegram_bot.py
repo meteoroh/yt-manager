@@ -18,6 +18,7 @@ from telegram.ext import (
 
 from yt_manager.config import Settings, get_settings
 from yt_manager.db import Database
+from yt_manager.disk import get_configured_disks_usage
 from yt_manager.extractor import extract_from_url
 from yt_manager.metube import MeTubeClient
 from yt_manager.scanner import get_scan_stats, sync_disks_to_db_and_archive
@@ -162,6 +163,7 @@ class TelegramBotService:
             f"<b>Commands</b>:\n"
             f"• <code>/scan</code> - Scan NAS disk & sync archive immediately\n"
             f"• <code>/status</code> - Check server status & media count\n"
+            f"• <code>/disk</code> - Check storage disk usage\n"
             f"• <code>/history</code> - View recent request history\n\n"
             f"Your Telegram ID: <code>{user_id}</code>"
         )
@@ -172,15 +174,46 @@ class TelegramBotService:
             return
         db = self._get_db()
         stats = get_scan_stats()
+        disks = get_configured_disks_usage(
+            media_dir=self.settings.media_dir,
+            downloads_dir=self.settings.downloads_dir,
+        )
+
+        disk_lines = []
+        for d in disks:
+            disk_lines.append(
+                f"• Disk ({html.escape(d.path)}): <code>{d.free_human} free / {d.total_human} ({d.percent_used}% used)</code>"
+            )
+        disk_section = ("\n" + "\n".join(disk_lines)) if disk_lines else ""
+
         text = (
             f"<b>yt-manager System Status</b>\n\n"
             f"• Total Saved Media: <b>{db.count():,}</b>\n"
             f"• Last Scanned At: <code>{html.escape(stats.last_scanned_at or 'Never')}</code>\n"
             f"• Scan Duration: <code>{stats.duration_seconds}s</code>\n"
-            f"• Media Directory: <code>{html.escape(str(self.settings.media_dir))}</code>\n"
+            f"• Media Directory: <code>{html.escape(str(self.settings.media_dir))}</code>"
+            f"{disk_section}\n"
             f"• MeTube URL: <code>{html.escape(self.settings.metube_url)}</code>"
         )
         await update.message.reply_text(text, parse_mode="HTML")
+
+    async def handle_disk(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._check_auth(update):
+            return
+        disks = get_configured_disks_usage(
+            media_dir=self.settings.media_dir,
+            downloads_dir=self.settings.downloads_dir,
+        )
+        if not disks:
+            await update.message.reply_text("No disk storage information available.", parse_mode="HTML")
+            return
+
+        lines = ["<b>Disk Storage Status</b>\n"]
+        for d in disks:
+            lines.append(
+                f"• <b>{html.escape(d.path)}</b>: <code>{d.free_human} free / {d.total_human} ({d.percent_used}% used)</code>"
+            )
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
     async def handle_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._check_auth(update):
@@ -532,6 +565,7 @@ class TelegramBotService:
         self.app.add_handler(CommandHandler("start", self.handle_start))
         self.app.add_handler(CommandHandler("help", self.handle_start))
         self.app.add_handler(CommandHandler("status", self.handle_status))
+        self.app.add_handler(CommandHandler("disk", self.handle_disk))
         self.app.add_handler(CommandHandler("scan", self.handle_scan))
         self.app.add_handler(CommandHandler("history", self.handle_history))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message))

@@ -385,3 +385,47 @@ async def test_send_chunked_reply_splits_properly():
     assert calls[-1].kwargs.get("reply_markup") == "dummy_markup"
     for call in calls:
         assert len(call.args[0]) <= 1200
+
+
+@pytest.mark.asyncio
+async def test_handle_status_and_disk(tmp_path: Path):
+    from unittest.mock import AsyncMock, MagicMock
+    from yt_manager.telegram_bot import TelegramBotService
+
+    media_dir = tmp_path / "media"
+    downloads_dir = tmp_path / "downloads"
+    media_dir.mkdir()
+    downloads_dir.mkdir()
+    db_path = tmp_path / "tg.db"
+
+    settings = Settings(
+        media_dir=media_dir,
+        downloads_dir=downloads_dir,
+        db_path=db_path,
+        archive_file_path=tmp_path / "archive.txt",
+    )
+    service = TelegramBotService(settings)
+
+    # 1. Test handle_status
+    mock_update = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = 12345
+    mock_update.effective_user = mock_user
+    mock_update.message = AsyncMock()
+
+    await service.handle_status(mock_update, MagicMock())
+    mock_update.message.reply_text.assert_awaited_once()
+    status_text = mock_update.message.reply_text.call_args[0][0]
+    assert "System Status" in status_text
+    assert f"Disk ({media_dir})" in status_text
+    assert f"Disk ({downloads_dir})" in status_text
+
+    # 2. Test handle_disk
+    mock_update.message.reset_mock()
+    await service.handle_disk(mock_update, MagicMock())
+    mock_update.message.reply_text.assert_awaited_once()
+    disk_text = mock_update.message.reply_text.call_args[0][0]
+    assert "Disk Storage Status" in disk_text
+    assert str(media_dir) in disk_text
+    assert str(downloads_dir) in disk_text
+

@@ -81,12 +81,24 @@ def test_api_check_video_and_scan(test_env):
     assert data2["folder"] == str(test_env["person_dir"].resolve())
     assert data2["message"] == "Video already exists."
 
-    # 4. Check status
+    # 4. Check status (including disk storage info)
     status_resp = client.get("/status")
     assert status_resp.status_code == 200
     status_data = status_resp.json()
     assert status_data["status"] == "ok"
     assert status_data["total_media_in_db"] == 1
+    assert "disks" in status_data
+    assert len(status_data["disks"]) >= 1
+    assert any(d["path"] == str(test_env["media_dir"]) for d in status_data["disks"])
+
+    # 4-1. Check dedicated /disk endpoint
+    disk_resp = client.get("/disk")
+    assert disk_resp.status_code == 200
+    disk_data = disk_resp.json()
+    assert isinstance(disk_data, list)
+    assert len(disk_data) >= 1
+    assert disk_data[0]["total_bytes"] > 0
+    assert "free_human" in disk_data[0]
 
     # 5. Check health
     health_resp = client.get("/health")

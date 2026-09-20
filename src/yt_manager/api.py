@@ -5,6 +5,7 @@ from pydantic import BaseModel, HttpUrl
 
 from yt_manager.config import Settings, get_settings
 from yt_manager.db import Database
+from yt_manager.disk import get_configured_disks_usage
 from yt_manager.extractor import extract_from_url
 from yt_manager.metube import MeTubeClient
 from yt_manager.scanner import get_scan_stats, sync_disks_to_db_and_archive
@@ -53,6 +54,17 @@ class ScanResponse(BaseModel):
     has_changes: bool = False
 
 
+class DiskUsageResponse(BaseModel):
+    path: str
+    total_bytes: int
+    used_bytes: int
+    free_bytes: int
+    total_human: str
+    used_human: str
+    free_human: str
+    percent_used: float
+
+
 class StatusResponse(BaseModel):
     status: str
     total_media_in_db: int
@@ -61,6 +73,7 @@ class StatusResponse(BaseModel):
     downloads_dir: str
     media_dir: str
     archive_file: str
+    disks: list[DiskUsageResponse] = []
 
 
 class HistoryItem(BaseModel):
@@ -272,6 +285,10 @@ def get_status(
     db: Database = Depends(get_db),
 ):
     stats = get_scan_stats()
+    disks_info = get_configured_disks_usage(
+        media_dir=settings.media_dir,
+        downloads_dir=settings.downloads_dir,
+    )
     return StatusResponse(
         status="ok",
         total_media_in_db=db.count(),
@@ -280,7 +297,43 @@ def get_status(
         downloads_dir=str(settings.downloads_dir),
         media_dir=str(settings.media_dir),
         archive_file=str(settings.archive_file_path),
+        disks=[
+            DiskUsageResponse(
+                path=d.path,
+                total_bytes=d.total_bytes,
+                used_bytes=d.used_bytes,
+                free_bytes=d.free_bytes,
+                total_human=d.total_human,
+                used_human=d.used_human,
+                free_human=d.free_human,
+                percent_used=d.percent_used,
+            )
+            for d in disks_info
+        ],
     )
+
+
+@router.get("/disk", response_model=list[DiskUsageResponse])
+def get_disk_status(
+    settings: Settings = Depends(get_settings),
+):
+    disks_info = get_configured_disks_usage(
+        media_dir=settings.media_dir,
+        downloads_dir=settings.downloads_dir,
+    )
+    return [
+        DiskUsageResponse(
+            path=d.path,
+            total_bytes=d.total_bytes,
+            used_bytes=d.used_bytes,
+            free_bytes=d.free_bytes,
+            total_human=d.total_human,
+            used_human=d.used_human,
+            free_human=d.free_human,
+            percent_used=d.percent_used,
+        )
+        for d in disks_info
+    ]
 
 
 @router.get("/health")
