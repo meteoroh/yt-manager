@@ -213,26 +213,44 @@ class TelegramBotService:
         if not await self._check_auth(update):
             return
         db = self._get_db()
-        limit = 10
-        if context.args and context.args[0].isdigit():
-            limit = min(50, max(1, int(context.args[0])))
+        target_arg = " ".join(context.args).strip() if context.args else None
 
-        records = db.get_history(limit=limit)
-        if not records:
-            await update.message.reply_text("No request history found.")
-            return
+        if target_arg and not target_arg.isdigit():
+            # URL or Video ID search mode
+            found_urls = extract_urls_from_text(target_arg)
+            url_to_check = found_urls[0] if found_urls else target_arg
 
-        lines = [f"<b>Recent Request History ({len(records)})</b>:\n"]
-        status_icons = {
-            "EXISTS": "✅",
-            "QUEUED": "🚀",
-            "MISSING": "⚠️",
-            "FAILED": "❌",
-            "INVALID": "⛔",
-        }
+            parsed = extract_from_url(url_to_check)
+            if parsed:
+                extractor, video_id = parsed
+                records = db.get_history(video_id=video_id, limit=50)
+                title = f"Request History for [{extractor.upper()}] <code>{html.escape(video_id)}</code>"
+            else:
+                records = db.get_history(video_id=target_arg, limit=50)
+                if not records:
+                    records = db.get_history(url=target_arg, limit=50)
+                title = f"Request History for <code>{html.escape(target_arg)}</code>"
 
+            if not records:
+                await update.message.reply_text(
+                    f"No request history found for: <code>{html.escape(target_arg)}</code>",
+                    parse_mode="HTML",
+                )
+                return
+
+            lines = [f"<b>{title} ({len(records)})</b>:\n"]
+        else:
+            limit = 20
+            if target_arg and target_arg.isdigit():
+                limit = min(50, max(1, int(target_arg)))
+
+            records = db.get_history(limit=limit)
+            if not records:
+                await update.message.reply_text("No request history found.")
+                return
+
+            lines = [f"<b>Recent Request History ({len(records)})</b>:\n"]
         for r in records:
-            icon = status_icons.get(r["status"], "•")
             time_part = r["created_at"].split("T")[-1][:5] if "T" in r["created_at"] else ""
             date_part = r["created_at"].split("T")[0] if "T" in r["created_at"] else ""
             ext = f"[{r['extractor'].upper()}]" if r["extractor"] else ""
@@ -244,10 +262,10 @@ class TelegramBotService:
                 safe_detail = html.escape(r["detail"][:50] + "..." if len(r["detail"]) > 50 else r["detail"])
                 detail_info = f"\n  └ <i>{safe_detail}</i>"
             elif r["status"] == "EXISTS" and r["detail"]:
-                folder_name = Path(r["detail"]).parent.name
-                detail_info = f"\n  └ <code>{html.escape(folder_name)}</code>"
+                folder_path = str(Path(r["detail"]).parent)
+                detail_info = f"\n  └ <code>{html.escape(folder_path)}</code>"
 
-            lines.append(f"{icon} <b>{r['status']}</b> {source_tag} {ext} {vid} <code>{date_part} {time_part}</code>{detail_info}")
+            lines.append(f"• <b>[{r['status']}]</b> {source_tag} {ext} {vid} <code>{date_part} {time_part}</code>{detail_info}")
 
         await send_chunked_reply(update.message, lines, parse_mode="HTML")
 

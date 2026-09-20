@@ -223,9 +223,20 @@ def get_request_history(
     offset: int = Query(0, ge=0),
     source: Optional[str] = Query(None, description="Filter by 'api' or 'telegram'"),
     status: Optional[str] = Query(None, description="Filter by 'EXISTS', 'MISSING', 'QUEUED', 'FAILED', 'INVALID'"),
+    video_id: Optional[str] = Query(None, description="Filter by video ID"),
+    extractor: Optional[str] = Query(None, description="Filter by platform name (e.g. youtube)"),
+    url: Optional[str] = Query(None, description="Filter by exact video URL"),
     db: Database = Depends(get_db),
 ):
-    rows = db.get_history(limit=limit, offset=offset, source=source, status=status)
+    rows = db.get_history(
+        limit=limit,
+        offset=offset,
+        source=source,
+        status=status,
+        video_id=video_id,
+        extractor=extractor,
+        url=url,
+    )
     return HistoryResponse(
         total_returned=len(rows),
         history=rows,

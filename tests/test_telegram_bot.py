@@ -203,10 +203,10 @@ async def test_telegram_handle_history(tmp_path: Path):
     # 2. When history has items
     db.record_request(
         source="telegram",
-        url="https://youtube.com/watch?v=abc12345",
+        url="https://youtube.com/watch?v=abc12345678",
         status="EXISTS",
         extractor="youtube",
-        video_id="abc12345",
+        video_id="abc12345678",
         detail="/media/Music/artist/song.mp4",
     )
     db.record_request(
@@ -219,10 +219,10 @@ async def test_telegram_handle_history(tmp_path: Path):
     )
     db.record_request(
         source="telegram",
-        url="https://youtube.com/watch?v=queued1",
+        url="https://youtube.com/watch?v=queued12345",
         status="QUEUED",
         extractor="youtube",
-        video_id="queued1",
+        video_id="queued12345",
     )
 
     mock_update.message.reply_text.reset_mock()
@@ -236,7 +236,33 @@ async def test_telegram_handle_history(tmp_path: Path):
     assert "FAILED" in called_text
     assert "QUEUED" in called_text
     assert "Private or deleted video" in called_text
-    assert "artist" in called_text
+    assert "/media/Music/artist" in called_text
+
+    # 3. Search history by URL
+    mock_update.message.reply_text.reset_mock()
+    mock_context.args = ["https://youtube.com/watch?v=abc12345678"]
+    await service.handle_history(mock_update, mock_context)
+    mock_update.message.reply_text.assert_awaited_once()
+    called_text = mock_update.message.reply_text.call_args[0][0]
+    assert "Request History for [YOUTUBE] <code>abc12345678</code> (1)" in called_text
+    assert "[EXISTS]" in called_text
+
+    # 4. Search history by direct video_id
+    mock_update.message.reply_text.reset_mock()
+    mock_context.args = ["999"]
+    await service.handle_history(mock_update, mock_context)
+    mock_update.message.reply_text.assert_awaited_once()
+    called_text = mock_update.message.reply_text.call_args[0][0]
+    assert "999" in called_text
+    assert "[FAILED]" in called_text
+
+    # 5. Search history for unknown URL
+    mock_update.message.reply_text.reset_mock()
+    mock_context.args = ["https://youtube.com/watch?v=never_seen"]
+    await service.handle_history(mock_update, mock_context)
+    mock_update.message.reply_text.assert_awaited_once()
+    called_text = mock_update.message.reply_text.call_args[0][0]
+    assert "No request history found for:" in called_text
 
 
 @pytest.mark.asyncio

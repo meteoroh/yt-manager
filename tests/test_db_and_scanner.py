@@ -309,6 +309,16 @@ def test_database_request_history(tmp_path: Path):
     assert len(queued_history) == 1
     assert queued_history[0]["id"] == 2
 
+    # 5. Filter by video_id
+    vid_history = db.get_history(video_id="vid1")
+    assert len(vid_history) == 1
+    assert vid_history[0]["video_id"] == "vid1"
+
+    # 6. Filter by url
+    url_history = db.get_history(url="https://youtube.com/watch?v=vid1")
+    assert len(url_history) == 1
+    assert url_history[0]["url"] == "https://youtube.com/watch?v=vid1"
+
 
 def test_database_cleanup_old_history(tmp_path: Path):
     db_path = tmp_path / "test_cleanup.db"

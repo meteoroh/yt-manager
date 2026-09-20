@@ -224,6 +224,9 @@ class Database:
         offset: int = 0,
         source: Optional[str] = None,
         status: Optional[str] = None,
+        video_id: Optional[str] = None,
+        extractor: Optional[str] = None,
+        url: Optional[str] = None,
     ) -> list[dict]:
         """
         Retrieve recent request history.
@@ -238,6 +241,15 @@ class Database:
         if status:
             conditions.append("status = ?")
             params.append(status.upper())
+        if video_id:
+            conditions.append("video_id = ?")
+            params.append(video_id)
+        if extractor:
+            conditions.append("extractor = ?")
+            params.append(extractor.lower())
+        if url:
+            conditions.append("url = ?")
+            params.append(url)
 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)

@@ -140,3 +140,14 @@ def test_api_download_and_history(test_env, monkeypatch):
     assert items[0]["source"] == "api"
     assert items[0]["status"] == "QUEUED"
     assert items[0]["video_id"] == "dQw4w9WgXcQ"
+
+    # Verify history filter by video_id
+    vid_hist = client.get("/history?video_id=dQw4w9WgXcQ")
+    assert vid_hist.status_code == 200
+    assert len(vid_hist.json()["history"]) >= 1
+    assert all(h["video_id"] == "dQw4w9WgXcQ" for h in vid_hist.json()["history"])
+
+    # Verify history filter by nonexistent video_id
+    none_hist = client.get("/history?video_id=nonexistent")
+    assert none_hist.status_code == 200
+    assert len(none_hist.json()["history"]) == 0
