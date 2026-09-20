@@ -36,6 +36,40 @@ def extract_urls_from_text(text: str) -> list[str]:
     return list(dict.fromkeys(matches))
 
 
+async def send_chunked_reply(
+    message: Any,
+    lines: list[str],
+    parse_mode: str = "HTML",
+    max_chars: int = 3800,
+    reply_markup: Any = None,
+) -> None:
+    """
+    Send messages in line-based chunks to ensure messages never exceed
+    Telegram's 4,096 character limit, while avoiding splitting mid-HTML tags.
+    Attaches reply_markup to the final chunk if provided.
+    """
+    chunk: list[str] = []
+    chunk_len = 0
+    chunks: list[list[str]] = []
+
+    for line in lines:
+        line_len = len(line)
+        if chunk and (chunk_len + line_len + 1 > max_chars):
+            chunks.append(chunk)
+            chunk = [line]
+            chunk_len = line_len
+        else:
+            chunk.append(line)
+            chunk_len += line_len + 1
+
+    if chunk:
+        chunks.append(chunk)
+
+    for i, c in enumerate(chunks):
+        markup = reply_markup if (i == len(chunks) - 1) else None
+        await message.reply_text("\n".join(c), parse_mode=parse_mode, reply_markup=markup)
+
+
 def analyze_urls(
     urls: list[str],
     db: Database,
@@ -215,7 +249,7 @@ class TelegramBotService:
 
             lines.append(f"{icon} <b>{r['status']}</b> {source_tag} {ext} {vid} <code>{date_part} {time_part}</code>{detail_info}")
 
-        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        await send_chunked_reply(update.message, lines, parse_mode="HTML")
 
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._check_auth(update):
@@ -349,7 +383,7 @@ class TelegramBotService:
 
         if not missing:
             report_lines.append("<b>All verified videos are already saved!</b>")
-            await update.message.reply_text("\n".join(report_lines), parse_mode="HTML")
+            await send_chunked_reply(update.message, report_lines, parse_mode="HTML")
             return
 
         # Missing videos exist -> Provide bulk download button
@@ -366,8 +400,9 @@ class TelegramBotService:
             ],
         ]
 
-        await update.message.reply_text(
-            "\n".join(report_lines),
+        await send_chunked_reply(
+            update.message,
+            report_lines,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="HTML",
         )

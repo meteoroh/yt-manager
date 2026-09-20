@@ -335,3 +335,25 @@ async def test_handle_callback_query_records_history(tmp_path: Path, monkeypatch
     assert hist[0]["source"] == "telegram"
     assert hist[0]["video_id"] == "failMe12345"
     assert hist[0]["detail"] == "Video unavailable"
+
+
+@pytest.mark.asyncio
+async def test_send_chunked_reply_splits_properly():
+    from unittest.mock import AsyncMock
+    from yt_manager.telegram_bot import send_chunked_reply
+
+    mock_msg = AsyncMock()
+    # Create 10 lines of 500 chars each (total 5000 chars)
+    lines = [f"Line {i:02d}: " + "x" * 490 for i in range(10)]
+
+    # Max 1200 chars per chunk -> should split into ~5 messages
+    await send_chunked_reply(mock_msg, lines, parse_mode="HTML", max_chars=1200, reply_markup="dummy_markup")
+
+    # Check calls
+    assert mock_msg.reply_text.await_count > 1
+    # Only the final chunk should receive the reply_markup
+    calls = mock_msg.reply_text.await_args_list
+    assert calls[0].kwargs.get("reply_markup") is None
+    assert calls[-1].kwargs.get("reply_markup") == "dummy_markup"
+    for call in calls:
+        assert len(call.args[0]) <= 1200
