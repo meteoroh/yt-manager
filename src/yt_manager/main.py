@@ -38,6 +38,12 @@ def run_scheduled_scan():
             logger.info(
                 f"Scheduled scan completed in {stats.duration_seconds}s. Total files: {stats.total_files} (no changes)"
             )
+
+        # Cleanup expired request history
+        if settings.request_history_retention_days > 0:
+            deleted_history = db.cleanup_old_history(settings.request_history_retention_days)
+            if deleted_history > 0:
+                logger.info(f"Cleaned up {deleted_history} expired request history record(s).")
     except Exception as e:
         logger.error(f"Error during scheduled disk scan: {e}", exc_info=True)
 

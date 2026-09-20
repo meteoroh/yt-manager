@@ -252,3 +252,89 @@ def test_simultaneous_add_and_delete(tmp_path: Path):
     assert db.find_by_id("youtube", "s2") is not None
     assert db.find_by_id("youtube", "s3") is not None
 
+
+def test_database_request_history(tmp_path: Path):
+    db_path = tmp_path / "test_history.db"
+    db = Database(db_path)
+
+    # 1. Record requests from api and telegram
+    id1 = db.record_request(
+        source="api",
+        url="https://youtube.com/watch?v=vid1",
+        status="EXISTS",
+        extractor="youtube",
+        video_id="vid1",
+        detail="/media/vid1.mp4",
+    )
+    id2 = db.record_request(
+        source="telegram",
+        url="https://x.com/user/status/123",
+        status="QUEUED",
+        extractor="twitter",
+        video_id="123",
+    )
+    id3 = db.record_request(
+        source="api",
+        url="https://invalid-url.com",
+        status="INVALID",
+        detail="Could not extract video ID",
+    )
+
+    assert id1 == 1
+    assert id2 == 2
+    assert id3 == 3
+
+    # 2. Get history with default limit
+    all_history = db.get_history()
+    assert len(all_history) == 3
+    # Ordered by id DESC
+    assert all_history[0]["id"] == 3
+    assert all_history[0]["status"] == "INVALID"
+    assert all_history[1]["id"] == 2
+    assert all_history[1]["source"] == "telegram"
+    assert all_history[2]["id"] == 1
+    assert all_history[2]["detail"] == "/media/vid1.mp4"
+
+    # 3. Filter by source
+    api_history = db.get_history(source="api")
+    assert len(api_history) == 2
+    assert all(h["source"] == "api" for h in api_history)
+
+    tg_history = db.get_history(source="telegram")
+    assert len(tg_history) == 1
+    assert tg_history[0]["video_id"] == "123"
+
+    # 4. Filter by status
+    queued_history = db.get_history(status="QUEUED")
+    assert len(queued_history) == 1
+    assert queued_history[0]["id"] == 2
+
+
+def test_database_cleanup_old_history(tmp_path: Path):
+    db_path = tmp_path / "test_cleanup.db"
+    db = Database(db_path)
+
+    # Record 1 old request (40 days ago) and 1 recent request
+    old_time = "2026-01-01T00:00:00+00:00"
+    db.record_request(
+        source="api",
+        url="https://youtube.com/watch?v=old",
+        status="EXISTS",
+        created_at=old_time,
+    )
+    db.record_request(
+        source="telegram",
+        url="https://youtube.com/watch?v=new",
+        status="QUEUED",
+    )
+
+    assert len(db.get_history()) == 2
+
+    # Cleanup with 30 days retention
+    deleted = db.cleanup_old_history(retention_days=30)
+    assert deleted == 1
+
+    remaining = db.get_history()
+    assert len(remaining) == 1
+    assert remaining[0]["url"] == "https://youtube.com/watch?v=new"
+

@@ -127,7 +127,8 @@ class TelegramBotService:
             f"• The bot checks if videos are already saved, and lets you download missing ones to MeTube with one click.\n\n"
             f"<b>Commands</b>:\n"
             f"• <code>/scan</code> - Scan NAS disk & sync archive immediately\n"
-            f"• <code>/status</code> - Check server status & media count\n\n"
+            f"• <code>/status</code> - Check server status & media count\n"
+            f"• <code>/history</code> - View recent request history\n\n"
             f"Your Telegram ID: <code>{user_id}</code>"
         )
         await update.message.reply_text(text, parse_mode="HTML")
@@ -174,6 +175,48 @@ class TelegramBotService:
             parse_mode="HTML",
         )
 
+    async def handle_history(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._check_auth(update):
+            return
+        db = self._get_db()
+        limit = 10
+        if context.args and context.args[0].isdigit():
+            limit = min(50, max(1, int(context.args[0])))
+
+        records = db.get_history(limit=limit)
+        if not records:
+            await update.message.reply_text("No request history found.")
+            return
+
+        lines = [f"<b>Recent Request History ({len(records)})</b>:\n"]
+        status_icons = {
+            "EXISTS": "✅",
+            "QUEUED": "🚀",
+            "MISSING": "⚠️",
+            "FAILED": "❌",
+            "INVALID": "⛔",
+        }
+
+        for r in records:
+            icon = status_icons.get(r["status"], "•")
+            time_part = r["created_at"].split("T")[-1][:5] if "T" in r["created_at"] else ""
+            date_part = r["created_at"].split("T")[0] if "T" in r["created_at"] else ""
+            ext = f"[{r['extractor'].upper()}]" if r["extractor"] else ""
+            vid = f"<code>{r['video_id']}</code>" if r["video_id"] else ""
+            source_tag = f"({r['source']})"
+
+            detail_info = ""
+            if r["status"] == "FAILED" and r["detail"]:
+                safe_detail = html.escape(r["detail"][:50] + "..." if len(r["detail"]) > 50 else r["detail"])
+                detail_info = f"\n  └ <i>{safe_detail}</i>"
+            elif r["status"] == "EXISTS" and r["detail"]:
+                folder_name = Path(r["detail"]).parent.name
+                detail_info = f"\n  └ <code>{html.escape(folder_name)}</code>"
+
+            lines.append(f"{icon} <b>{r['status']}</b> {source_tag} {ext} {vid} <code>{date_part} {time_part}</code>{detail_info}")
+
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._check_auth(update):
             return
@@ -211,6 +254,31 @@ class TelegramBotService:
     async def _process_and_respond(self, update: Update, urls: list[str]):
         db = self._get_db()
         found, missing, invalid = analyze_urls(urls, db)
+
+        # Record all checked URLs in request history
+        for item in found:
+            db.record_request(
+                source="telegram",
+                url=item["url"],
+                extractor=item["extractor"],
+                video_id=item["video_id"],
+                status="EXISTS",
+                detail=item["file_path"],
+            )
+        for item in missing:
+            db.record_request(
+                source="telegram",
+                url=item["url"],
+                extractor=item["extractor"],
+                video_id=item["video_id"],
+                status="MISSING",
+            )
+        for u in invalid:
+            db.record_request(
+                source="telegram",
+                url=u,
+                status="INVALID",
+            )
 
         # Case 1: Single URL
         if len(urls) == 1:
@@ -330,20 +398,60 @@ class TelegramBotService:
             return
 
         metube = self._get_metube()
+        db = self._get_db()
 
         if action == "dl_single":
             url = urls[0]
+            parsed = extract_from_url(url)
+            extractor, video_id = parsed if parsed else (None, None)
             await query.edit_message_reply_markup(reply_markup=None)
             res = await metube.add_download(url)
             if res.get("success"):
+                db.record_request(
+                    source="telegram",
+                    url=url,
+                    extractor=extractor,
+                    video_id=video_id,
+                    status="QUEUED",
+                )
                 await query.message.reply_text("<b>Download request sent to MeTube!</b>", parse_mode="HTML")
             else:
-                await query.message.reply_text(f"Download request failed: {html.escape(str(res.get('error', 'Unknown error')))}")
+                err_str = str(res.get("error", "Unknown error"))
+                db.record_request(
+                    source="telegram",
+                    url=url,
+                    extractor=extractor,
+                    video_id=video_id,
+                    status="FAILED",
+                    detail=err_str,
+                )
+                await query.message.reply_text(f"Download request failed: {html.escape(err_str)}")
 
         elif action == "dl_bulk":
             await query.edit_message_reply_markup(reply_markup=None)
             status_msg = await query.message.reply_text(f"Adding {len(urls)} video(s) to MeTube queue...")
             success_count, results = await metube.add_bulk_downloads(urls)
+
+            for url, r in zip(urls, results):
+                parsed = extract_from_url(url)
+                extractor, video_id = parsed if parsed else (None, None)
+                if r.get("success"):
+                    db.record_request(
+                        source="telegram",
+                        url=url,
+                        extractor=extractor,
+                        video_id=video_id,
+                        status="QUEUED",
+                    )
+                else:
+                    db.record_request(
+                        source="telegram",
+                        url=url,
+                        extractor=extractor,
+                        video_id=video_id,
+                        status="FAILED",
+                        detail=str(r.get("error", "Unknown error")),
+                    )
 
             if success_count == len(urls):
                 await status_msg.edit_text(
@@ -369,6 +477,7 @@ class TelegramBotService:
         self.app.add_handler(CommandHandler("help", self.handle_start))
         self.app.add_handler(CommandHandler("status", self.handle_status))
         self.app.add_handler(CommandHandler("scan", self.handle_scan))
+        self.app.add_handler(CommandHandler("history", self.handle_history))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message))
         self.app.add_handler(MessageHandler(filters.Document.FileExtension("txt"), self.handle_document_message))
         self.app.add_handler(CallbackQueryHandler(self.handle_callback_query))

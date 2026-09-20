@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # Comma-separated allowed Telegram user IDs (e.g., "12345678,87654321"). If empty, all users allowed.
     telegram_allowed_users: str = ""
 
+    # Request history logging retention (in days)
+    request_history_retention_days: int = 30
+
     @property
     def parsed_exclude_dirs(self) -> list[str]:
         if not self.exclude_dirs:

@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, HttpUrl
 
 from yt_manager.config import Settings, get_settings
@@ -63,6 +63,22 @@ class StatusResponse(BaseModel):
     archive_file: str
 
 
+class HistoryItem(BaseModel):
+    id: int
+    created_at: str
+    source: str
+    url: str
+    extractor: Optional[str] = None
+    video_id: Optional[str] = None
+    status: str
+    detail: Optional[str] = None
+
+
+class HistoryResponse(BaseModel):
+    total_returned: int
+    history: list[HistoryItem]
+
+
 def get_db(settings: Settings = Depends(get_settings)) -> Database:
     return Database(settings.db_path)
 
@@ -80,6 +96,12 @@ async def check_video(
 ):
     parsed = extract_from_url(req.url)
     if not parsed:
+        db.record_request(
+            source="api",
+            url=req.url,
+            status="INVALID",
+            detail="Could not extract video ID from the provided URL.",
+        )
         return CheckVideoResponse(
             exists=False,
             message="Could not extract video ID from the provided URL.",
@@ -97,6 +119,14 @@ async def check_video(
     if file_path:
         p = Path(file_path)
         folder_path = str(p.parent)
+        db.record_request(
+            source="api",
+            url=req.url,
+            extractor=extractor,
+            video_id=video_id,
+            status="EXISTS",
+            detail=file_path,
+        )
         return CheckVideoResponse(
             exists=True,
             extractor=extractor,
@@ -108,6 +138,26 @@ async def check_video(
         )
 
     # Not found
+    status = "MISSING"
+    detail = None
+    dl_res = None
+    if req.auto_download:
+        dl_res = await metube.add_download(req.url, quality=req.quality)
+        if dl_res.get("success"):
+            status = "QUEUED"
+        else:
+            status = "FAILED"
+            detail = dl_res.get("error")
+
+    db.record_request(
+        source="api",
+        url=req.url,
+        extractor=extractor,
+        video_id=video_id,
+        status=status,
+        detail=detail,
+    )
+
     resp = CheckVideoResponse(
         exists=False,
         extractor=extractor,
@@ -116,7 +166,6 @@ async def check_video(
     )
 
     if req.auto_download:
-        dl_res = await metube.add_download(req.url, quality=req.quality)
         resp.download_triggered = True
         resp.download_result = dl_res
 
@@ -126,8 +175,12 @@ async def check_video(
 @router.post("/download", response_model=DownloadResponse)
 async def download_video(
     req: DownloadRequest,
+    db: Database = Depends(get_db),
     metube: MeTubeClient = Depends(get_metube),
 ):
+    parsed = extract_from_url(req.url)
+    extractor, video_id = parsed if parsed else (None, None)
+
     res = await metube.add_download(
         url=req.url,
         quality=req.quality,
@@ -135,15 +188,47 @@ async def download_video(
         folder=req.folder,
     )
     if res.get("success"):
+        db.record_request(
+            source="api",
+            url=req.url,
+            extractor=extractor,
+            video_id=video_id,
+            status="QUEUED",
+        )
         return DownloadResponse(
             success=True,
             message="Download request successfully sent to MeTube.",
             details=res,
         )
+
+    err_msg = res.get("error", "Failed to request download")
+    db.record_request(
+        source="api",
+        url=req.url,
+        extractor=extractor,
+        video_id=video_id,
+        status="FAILED",
+        detail=err_msg,
+    )
     return DownloadResponse(
         success=False,
-        message=res.get("error", "Failed to request download"),
+        message=err_msg,
         details=res,
+    )
+
+
+@router.get("/history", response_model=HistoryResponse)
+def get_request_history(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    source: Optional[str] = Query(None, description="Filter by 'api' or 'telegram'"),
+    status: Optional[str] = Query(None, description="Filter by 'EXISTS', 'MISSING', 'QUEUED', 'FAILED', 'INVALID'"),
+    db: Database = Depends(get_db),
+):
+    rows = db.get_history(limit=limit, offset=offset, source=source, status=status)
+    return HistoryResponse(
+        total_returned=len(rows),
+        history=rows,
     )
 
 

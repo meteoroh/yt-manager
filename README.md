@@ -84,6 +84,9 @@ EXCLUDE_PATTERNS=*sample*,test_*,*.temp.mp4
 # Telegram Bot (Optional, auto-starts if token is provided)
 TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
 TELEGRAM_ALLOWED_USERS=12345678
+
+# Request History Retention (days)
+REQUEST_HISTORY_RETENTION_DAYS=30
 ```
 
 ---
@@ -181,10 +184,36 @@ Scans disks immediately, syncs the DB, and dumps `archive.txt`.
   }
   ```
 
-### 4. `GET /status` (Server Status)
+### 4. `GET /history` (Request History)
+Returns logged video URL requests submitted via API or Telegram.
+- **Query Parameters**:
+  - `limit` (default: 50, max: 200)
+  - `offset` (default: 0)
+  - `source` (`api` or `telegram`)
+  - `status` (`EXISTS`, `MISSING`, `QUEUED`, `FAILED`, `INVALID`)
+- **Response**:
+  ```json
+  {
+    "total_returned": 1,
+    "history": [
+      {
+        "id": 42,
+        "created_at": "2026-09-20T01:30:00.000000+00:00",
+        "source": "api",
+        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "extractor": "youtube",
+        "video_id": "dQw4w9WgXcQ",
+        "status": "EXISTS",
+        "detail": "/media/IU/Good Day [youtube-dQw4w9WgXcQ].mp4"
+      }
+    ]
+  }
+  ```
+
+### 5. `GET /status` (Server Status)
 Returns total media count, last scan timestamp, and scan duration.
 
-### 5. `GET /health`
+### 6. `GET /health`
 Healthcheck endpoint (`{"status": "ok"}`).
 
 ---
@@ -193,7 +222,7 @@ Healthcheck endpoint (`{"status": "ok"}`).
 
 You can install the ready-to-use iOS Shortcut directly via iCloud:
 
-👉 **[Download Official iOS Shortcut (iCloud)](https://www.icloud.com/shortcuts/d7f73ccd0af945c8993fea6514146167)**
+👉 **[Download Official iOS Shortcut (iCloud)](https://www.icloud.com/shortcuts/f6ee5f2f19ae4db6bbfe86c982072a99)**
 
 ### Shortcut Workflow
 1. **Share Sheet Trigger**: Share any video link from YouTube, Safari, Twitter/X, Instagram, or TikTok.
@@ -216,6 +245,7 @@ The Telegram bot uses **Long Polling**, which requires no router port-forwarding
 2. **One-Click Bulk Download**:
    - If missing videos are detected, the bot provides a `[Download (N)]` inline button to queue all missing URLs to MeTube simultaneously.
 3. **Commands**:
+   - `/history [N]`: Shows recent request URL history (e.g. `/history 10` or `/history 20`), showing statuses (✅ EXISTS, 🚀 QUEUED, ⚠️ MISSING, ❌ FAILED, ⛔ INVALID), sources, and target folders or error details.
    - `/scan`: Instantly triggers a NAS disk rescan and `archive.txt` sync.
    - `/status`: Displays current total media count and system health.
    - `/start`: Shows welcome message and displays your Telegram User ID.

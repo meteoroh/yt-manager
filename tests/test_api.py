@@ -92,3 +92,51 @@ def test_api_check_video_and_scan(test_env):
     health_resp = client.get("/health")
     assert health_resp.status_code == 200
     assert health_resp.json() == {"status": "ok"}
+
+    # 6. Verify request history recorded from check-video calls
+    hist_resp = client.get("/history")
+    assert hist_resp.status_code == 200
+    hist_data = hist_resp.json()
+    assert hist_data["total_returned"] == 2
+    # The most recent call was EXISTS (from step 3)
+    assert hist_data["history"][0]["status"] == "EXISTS"
+    assert hist_data["history"][0]["source"] == "api"
+    assert hist_data["history"][0]["video_id"] == "dQw4w9WgXcQ"
+    # The first call was MISSING (from step 1)
+    assert hist_data["history"][1]["status"] == "MISSING"
+    assert hist_data["history"][1]["source"] == "api"
+
+    # 7. Test invalid URL recording
+    resp_invalid = client.post("/check-video", json={"url": "https://unknown.site/page"})
+    assert resp_invalid.status_code == 200
+    hist_invalid = client.get("/history?status=INVALID")
+    assert hist_invalid.status_code == 200
+    assert hist_invalid.json()["total_returned"] == 1
+    assert hist_invalid.json()["history"][0]["status"] == "INVALID"
+
+
+def test_api_download_and_history(test_env, monkeypatch):
+    client = TestClient(app)
+    from yt_manager.metube import MeTubeClient
+
+    # Mock MeTube add_download success
+    async def mock_add_download_success(self, url, **kwargs):
+        return {"success": True, "status": "ok", "url": url}
+
+    monkeypatch.setattr(MeTubeClient, "add_download", mock_add_download_success)
+
+    dl_resp = client.post(
+        "/download",
+        json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "quality": "best"},
+    )
+    assert dl_resp.status_code == 200
+    assert dl_resp.json()["success"] is True
+
+    # Verify history recorded QUEUED
+    hist = client.get("/history?status=QUEUED")
+    assert hist.status_code == 200
+    items = hist.json()["history"]
+    assert len(items) == 1
+    assert items[0]["source"] == "api"
+    assert items[0]["status"] == "QUEUED"
+    assert items[0]["video_id"] == "dQw4w9WgXcQ"

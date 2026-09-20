@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import NamedTuple, Optional
 
@@ -39,6 +40,26 @@ class Database:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_media_file_path ON media (file_path)"
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS request_history (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    source     TEXT NOT NULL,
+                    url        TEXT NOT NULL,
+                    extractor  TEXT,
+                    video_id   TEXT,
+                    status     TEXT NOT NULL,
+                    detail     TEXT
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_request_history_created ON request_history (created_at DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_request_history_id ON request_history (extractor, video_id)"
             )
             conn.commit()
 
@@ -159,3 +180,87 @@ class Database:
         with self._get_connection() as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM media")
             return cursor.fetchone()[0]
+
+    def record_request(
+        self,
+        source: str,
+        url: str,
+        status: str,
+        extractor: Optional[str] = None,
+        video_id: Optional[str] = None,
+        detail: Optional[str] = None,
+        created_at: Optional[str] = None,
+    ) -> int:
+        """
+        Record an incoming video request into request_history.
+        source: 'api' or 'telegram'
+        status: 'EXISTS', 'MISSING', 'QUEUED', 'FAILED', 'INVALID'
+        """
+        if created_at is None:
+            created_at = datetime.now(timezone.utc).isoformat()
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO request_history (created_at, source, url, extractor, video_id, status, detail)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    created_at,
+                    source.lower(),
+                    url,
+                    extractor.lower() if extractor else None,
+                    video_id,
+                    status.upper(),
+                    detail,
+                ),
+            )
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_history(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        source: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> list[dict]:
+        """
+        Retrieve recent request history.
+        """
+        query = "SELECT id, created_at, source, url, extractor, video_id, status, detail FROM request_history"
+        conditions = []
+        params: list = []
+
+        if source:
+            conditions.append("source = ?")
+            params.append(source.lower())
+        if status:
+            conditions.append("status = ?")
+            params.append(status.upper())
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        query += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def cleanup_old_history(self, retention_days: int = 30) -> int:
+        """
+        Delete history records older than retention_days.
+        Returns count of deleted records.
+        """
+        if retention_days <= 0:
+            return 0
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM request_history WHERE created_at < ?",
+                (cutoff,),
+            )
+            conn.commit()
+            return cursor.rowcount
