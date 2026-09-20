@@ -250,6 +250,9 @@ class TelegramBotService:
                 return
 
             lines = [f"<b>Recent Request History ({len(records)})</b>:\n"]
+
+        # Display in chronological order (oldest -> newest at the bottom) for mobile chat UX
+        records.reverse()
         for r in records:
             time_part = r["created_at"].split("T")[-1][:5] if "T" in r["created_at"] else ""
             date_part = r["created_at"].split("T")[0] if "T" in r["created_at"] else ""

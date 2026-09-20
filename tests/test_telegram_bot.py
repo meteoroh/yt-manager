@@ -237,6 +237,8 @@ async def test_telegram_handle_history(tmp_path: Path):
     assert "QUEUED" in called_text
     assert "Private or deleted video" in called_text
     assert "/media/Music/artist" in called_text
+    # Verify newest item (QUEUED) is at the bottom (chronological order)
+    assert called_text.find("EXISTS") < called_text.find("FAILED") < called_text.find("QUEUED")
 
     # 3. Search history by URL
     mock_update.message.reply_text.reset_mock()
