@@ -227,6 +227,7 @@ class Database:
         video_id: Optional[str] = None,
         extractor: Optional[str] = None,
         url: Optional[str] = None,
+        url_contains: Optional[str] = None,
     ) -> list[dict]:
         """
         Retrieve recent request history.
@@ -250,6 +251,9 @@ class Database:
         if url:
             conditions.append("url = ?")
             params.append(url)
+        elif url_contains:
+            conditions.append("(url LIKE ? OR detail LIKE ?)")
+            params.extend([f"%{url_contains}%", f"%{url_contains}%"])
 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)

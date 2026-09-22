@@ -21,6 +21,7 @@ from yt_manager.db import Database
 from yt_manager.disk import get_configured_disks_usage
 from yt_manager.extractor import extract_from_url
 from yt_manager.metube import MeTubeClient
+from yt_manager.playlist import analyze_playlist, is_playlist_url
 from yt_manager.scanner import get_scan_stats, sync_disks_to_db_and_archive
 
 logger = logging.getLogger("yt_manager.telegram")
@@ -29,6 +30,7 @@ URL_REGEX = re.compile(r"https?://[^\s<>\"'`]+")
 
 # In-memory action cache for callback queries (due to Telegram 64-byte callback_data limit)
 ACTION_CACHE: dict[str, list[str]] = {}
+ACTION_METADATA: dict[str, dict[str, Any]] = {}
 
 
 def extract_urls_from_text(text: str) -> list[str]:
@@ -253,16 +255,25 @@ class TelegramBotService:
             found_urls = extract_urls_from_text(target_arg)
             url_to_check = found_urls[0] if found_urls else target_arg
 
-            parsed = extract_from_url(url_to_check)
-            if parsed:
-                extractor, video_id = parsed
-                records = db.get_history(video_id=video_id, limit=50)
-                title = f"Request History for [{extractor.upper()}] <code>{html.escape(video_id)}</code>"
+            # If target_arg is a playlist URL, extract playlist_id for searching
+            m_list = re.search(r"list=([a-zA-Z0-9_-]+)", url_to_check)
+            if m_list:
+                pl_id = m_list.group(1)
+                records = db.get_history(url_contains=pl_id, limit=50)
+                title = f"Request History for Playlist <code>{html.escape(pl_id)}</code>"
             else:
-                records = db.get_history(video_id=target_arg, limit=50)
-                if not records:
-                    records = db.get_history(url=target_arg, limit=50)
-                title = f"Request History for <code>{html.escape(target_arg)}</code>"
+                parsed = extract_from_url(url_to_check)
+                if parsed:
+                    extractor, video_id = parsed
+                    records = db.get_history(video_id=video_id, limit=50)
+                    title = f"Request History for [{extractor.upper()}] <code>{html.escape(video_id)}</code>"
+                else:
+                    records = db.get_history(video_id=target_arg, limit=50)
+                    if not records:
+                        records = db.get_history(url=target_arg, limit=50)
+                    if not records:
+                        records = db.get_history(url_contains=target_arg, limit=50)
+                    title = f"Request History for <code>{html.escape(target_arg)}</code>"
 
             if not records:
                 await update.message.reply_text(
@@ -300,6 +311,12 @@ class TelegramBotService:
             elif r["status"] == "EXISTS" and r["detail"]:
                 folder_path = str(Path(r["detail"]).parent)
                 detail_info = f"\n  └ <code>{html.escape(folder_path)}</code>"
+            elif r["status"] == "CHECKED" and r["detail"]:
+                safe_detail = html.escape(r["detail"][:80] + "..." if len(r["detail"]) > 80 else r["detail"])
+                detail_info = f"\n  └ <i>{safe_detail}</i>"
+            elif r["status"] == "QUEUED" and r["detail"]:
+                safe_detail = html.escape(r["detail"][:80] + "..." if len(r["detail"]) > 80 else r["detail"])
+                detail_info = f"\n  └ <i>{safe_detail}</i>"
 
             lines.append(f"• <b>[{r['status']}]</b> {source_tag} {ext} {vid} <code>{date_part} {time_part}</code>{detail_info}")
 
@@ -341,6 +358,66 @@ class TelegramBotService:
 
     async def _process_and_respond(self, update: Update, urls: list[str]):
         db = self._get_db()
+
+        # Check if single URL is a playlist
+        if len(urls) == 1 and is_playlist_url(urls[0]):
+            status_msg = await update.message.reply_text("Analyzing playlist...")
+            max_items = self.settings.playlist_max_items
+            analysis = await asyncio.to_thread(analyze_playlist, urls[0], db, max_items=max_items)
+
+            if not analysis or analysis.total_count == 0:
+                await status_msg.edit_text("Could not extract videos from the playlist or playlist is empty.")
+                db.record_request(
+                    source="telegram",
+                    url=urls[0],
+                    status="INVALID",
+                    detail="Empty or failed playlist extraction",
+                )
+                return
+
+            db.record_request(
+                source="telegram",
+                url=urls[0],
+                status="CHECKED",
+                detail=f"Playlist: {analysis.found_count} found, {analysis.missing_count} missing out of {analysis.total_count}",
+            )
+
+            if analysis.missing_count == 0:
+                text = (
+                    f"<b>Playlist: {html.escape(analysis.title)}</b>\n\n"
+                    f"• Total Videos: <b>{analysis.total_count}</b>\n"
+                    f"• Already Saved: <b>{analysis.found_count}</b>\n\n"
+                    f"<b>All videos in this playlist are already saved!</b>"
+                )
+                await status_msg.edit_text(text, parse_mode="HTML")
+                return
+
+            action_id = str(uuid.uuid4())[:8]
+            ACTION_CACHE[action_id] = [it.url for it in analysis.missing_items]
+            ACTION_METADATA[action_id] = {"playlist_id": analysis.playlist_id}
+
+            text = (
+                f"<b>Playlist: {html.escape(analysis.title)}</b>\n\n"
+                f"• Total Videos: <b>{analysis.total_count}</b>\n"
+                f"• Already Saved: <b>{analysis.found_count}</b>\n"
+                f"• Missing Videos: <b>{analysis.missing_count}</b>\n\n"
+                f"Download missing video(s) now via MeTube?"
+            )
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        f"Download ({analysis.missing_count})",
+                        callback_data=f"dl_bulk:{action_id}",
+                    )
+                ]
+            ]
+            await status_msg.edit_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML",
+            )
+            return
+
         found, missing, invalid = analyze_urls(urls, db)
 
         # Record all checked URLs in request history
@@ -476,6 +553,8 @@ class TelegramBotService:
 
         action, action_id = parts[0], parts[1]
         urls = ACTION_CACHE.pop(action_id, [])
+        meta = ACTION_METADATA.pop(action_id, {})
+        pl_id = meta.get("playlist_id")
 
         if action == "cancel":
             await query.edit_message_reply_markup(reply_markup=None)
@@ -531,6 +610,7 @@ class TelegramBotService:
                         extractor=extractor,
                         video_id=video_id,
                         status="QUEUED",
+                        detail=f"Playlist: {pl_id}" if pl_id else None,
                     )
                 else:
                     db.record_request(

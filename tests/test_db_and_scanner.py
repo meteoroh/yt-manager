@@ -319,6 +319,11 @@ def test_database_request_history(tmp_path: Path):
     assert len(url_history) == 1
     assert url_history[0]["url"] == "https://youtube.com/watch?v=vid1"
 
+    # 7. Filter by url_contains (e.g. partial URL or playlist ID)
+    partial_history = db.get_history(url_contains="watch?v=vid1")
+    assert len(partial_history) == 1
+    assert partial_history[0]["video_id"] == "vid1"
+
 
 def test_database_cleanup_old_history(tmp_path: Path):
     db_path = tmp_path / "test_cleanup.db"

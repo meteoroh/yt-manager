@@ -98,3 +98,29 @@ def test_extract_from_url():
 
     # Invalid URL
     assert extract_from_url("https://google.com/search?q=test", use_ytdlp_fallback=False) is None
+
+
+def test_extract_from_url_filters_out_playlists(monkeypatch):
+    import yt_dlp
+
+    class MockYoutubeDL:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def extract_info(self, url, download=False, process=False):
+            if "playlist" in url:
+                return {"_type": "playlist", "id": "PL123", "extractor": "youtube:tab"}
+            if "feed" in url:
+                return {"_type": "playlist", "id": "history", "extractor": "youtube:tab"}
+            return None
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", MockYoutubeDL)
+
+    assert extract_from_url("https://www.youtube.com/playlist?list=PL123") is None
+    assert extract_from_url("https://www.youtube.com/feed/history") is None

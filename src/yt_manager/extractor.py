@@ -127,10 +127,18 @@ def extract_from_url(url: str, use_ytdlp_fallback: bool = True) -> Optional[tupl
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(clean_url, download=False, process=False)
                 if info:
+                    # Ignore playlists, channels, feeds in single video extractor
+                    if info.get("_type") == "playlist" or "entries" in info:
+                        return None
+
                     ext = info.get("ie_key") or info.get("extractor") or ""
+                    if "tab" in ext.lower():
+                        return None
+
                     vid = info.get("id")
                     if ext and vid:
-                        return normalize_extractor(ext), str(vid)
+                        norm_ext = normalize_extractor(ext.split(":")[0])
+                        return norm_ext, str(vid)
         except Exception:
             pass
 

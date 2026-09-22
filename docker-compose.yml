@@ -30,6 +30,9 @@ services:
       - EXCLUDE_DIRS=backup,temp,/media/family
       - EXCLUDE_PATTERNS=*sample*,*.temp.mp4
 
+      # Playlist configuration
+      - PLAYLIST_MAX_ITEMS=200
+
       # Telegram bot configuration (optional)
       - TELEGRAM_BOT_TOKEN=
       - TELEGRAM_ALLOWED_USERS=

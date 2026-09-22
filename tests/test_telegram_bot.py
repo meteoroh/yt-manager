@@ -266,6 +266,41 @@ async def test_telegram_handle_history(tmp_path: Path):
     called_text = mock_update.message.reply_text.call_args[0][0]
     assert "No request history found for:" in called_text
 
+    # 6. Search history by playlist ID (without full URL)
+    db.record_request(
+        source="telegram",
+        url="https://www.youtube.com/playlist?list=PL_TEST_PLAYLIST_ID",
+        status="CHECKED",
+        detail="Playlist: 10 found, 2 missing out of 12",
+    )
+    db.record_request(
+        source="telegram",
+        url="https://www.youtube.com/watch?v=vid_from_pl",
+        status="QUEUED",
+        extractor="youtube",
+        video_id="vid_from_pl",
+        detail="Playlist: PL_TEST_PLAYLIST_ID",
+    )
+    mock_update.message.reply_text.reset_mock()
+    mock_context.args = ["PL_TEST_PLAYLIST_ID"]
+    await service.handle_history(mock_update, mock_context)
+    mock_update.message.reply_text.assert_awaited_once()
+    called_text = mock_update.message.reply_text.call_args[0][0]
+    assert "PL_TEST_PLAYLIST_ID" in called_text
+    assert "[CHECKED]" in called_text
+    assert "[QUEUED]" in called_text
+    assert "vid_from_pl" in called_text
+
+    # 7. Search history by full playlist URL
+    mock_update.message.reply_text.reset_mock()
+    mock_context.args = ["https://www.youtube.com/playlist?list=PL_TEST_PLAYLIST_ID"]
+    await service.handle_history(mock_update, mock_context)
+    mock_update.message.reply_text.assert_awaited_once()
+    called_text2 = mock_update.message.reply_text.call_args[0][0]
+    assert "[CHECKED]" in called_text2
+    assert "[QUEUED]" in called_text2
+    assert "vid_from_pl" in called_text2
+
 
 @pytest.mark.asyncio
 async def test_process_and_respond_records_history(tmp_path: Path):
@@ -428,4 +463,75 @@ async def test_handle_status_and_disk(tmp_path: Path):
     assert "Disk Storage Status" in disk_text
     assert str(media_dir) in disk_text
     assert str(downloads_dir) in disk_text
+
+
+@pytest.mark.asyncio
+async def test_handle_playlist_message(tmp_path: Path, monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+    import yt_dlp
+    from yt_manager.telegram_bot import TelegramBotService
+
+    db_path = tmp_path / "tg.db"
+    db = Database(db_path)
+    db.sync_all([
+        ("youtube", "vidA", "/media/Artist/Song A [youtube-vidA].mp4")
+    ])
+
+    settings = Settings(
+        media_dir=tmp_path / "media",
+        db_path=db_path,
+        archive_file_path=tmp_path / "archive.txt",
+    )
+    service = TelegramBotService(settings)
+
+    mock_info = {
+        "_type": "playlist",
+        "id": "PL_TG_TEST",
+        "title": "Telegram Playlist",
+        "entries": [
+            {"id": "vidA", "title": "Song A", "url": "https://www.youtube.com/watch?v=vidA", "ie_key": "Youtube"},
+            {"id": "vidB", "title": "Song B", "url": "https://www.youtube.com/watch?v=vidB", "ie_key": "Youtube"},
+        ],
+    }
+
+    class MockYoutubeDL:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def extract_info(self, url, download=False, process=False):
+            return mock_info
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", MockYoutubeDL)
+
+    mock_update = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = 12345
+    mock_update.effective_user = mock_user
+
+    mock_status_msg = AsyncMock()
+    mock_update.message.reply_text = AsyncMock(return_value=mock_status_msg)
+    mock_update.message.text = "Check this https://www.youtube.com/playlist?list=PL_TG_TEST"
+
+    await service.handle_text_message(mock_update, MagicMock())
+
+    # Verify "Analyzing playlist..." was sent
+    mock_update.message.reply_text.assert_awaited_with("Analyzing playlist...")
+    # Verify status_msg was edited with playlist stats
+    mock_status_msg.edit_text.assert_awaited_once()
+    edited_text = mock_status_msg.edit_text.call_args[0][0]
+    assert "Telegram Playlist" in edited_text
+    assert "Total Videos: <b>2</b>" in edited_text
+    assert "Already Saved: <b>1</b>" in edited_text
+    assert "Missing Videos: <b>1</b>" in edited_text
+
+    # Verify inline keyboard has "Download (1)"
+    reply_markup = mock_status_msg.edit_text.call_args[1].get("reply_markup")
+    assert reply_markup is not None
+    assert reply_markup.inline_keyboard[0][0].text == "Download (1)"
 

@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # Request history logging retention (in days)
     request_history_retention_days: int = 30
 
+    # Playlist settings
+    playlist_max_items: int = 200
+
     @property
     def parsed_exclude_dirs(self) -> list[str]:
         if not self.exclude_dirs:

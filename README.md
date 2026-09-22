@@ -55,7 +55,7 @@ Verify ownership and trigger downloads directly from the iOS Share Sheet:
 
 ### 🤖 Telegram Bot
 Works over LTE/5G via Long Polling (no port forwarding or VPN needed).
-- **URL / Text / `.txt` file**: Automatically extracts links, checks ownership, and provides an inline `[Download]` button for missing videos.
+- **URL / Text / `.txt` file / Playlist**: Automatically extracts links, analyzes playlists (filters out existing videos), and provides an inline `[Download]` button.
 - **Commands**:
   - `/history [N | URL | video_id]`: View recent requests (default: 20, max: 50) or trace history of a specific link/ID.
   - `/disk`: Check storage disk capacity and usage (`MEDIA_DIR`, `DOWNLOADS_DIR`).
@@ -69,8 +69,10 @@ Works over LTE/5G via Long Polling (no port forwarding or VPN needed).
 
 | Endpoint | Method | Description | Key Parameters / Payload |
 | :--- | :--- | :--- | :--- |
-| `/check-video` | `POST` | Check video ownership | `{"url": "...", "auto_download": false}` |
-| `/download` | `POST` | Forward download to MeTube | `{"url": "...", "quality": "best"}` |
+| `/check` | `POST` | Smart check (auto-detects single video vs playlist) | `{"url": "...", "auto_download": false}` |
+| `/check-playlist` | `POST` | Inspect playlist & list missing videos | `{"url": "...", "auto_download_missing": false}` |
+| `/check-video` | `POST` | Check single video ownership | `{"url": "...", "auto_download": false}` |
+| `/download` | `POST` | Forward single/bulk/playlist download to MeTube | `{"url": "..."}` or `{"urls": [...]}` |
 | `/history` | `GET` | Query request history | `limit`, `offset`, `source`, `status`, `video_id`, `url` |
 | `/disk` | `GET` | Get storage disk capacity and usage | - |
 | `/scan` | `POST` | Trigger immediate disk scan | - |
