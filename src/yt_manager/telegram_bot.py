@@ -375,38 +375,48 @@ class TelegramBotService:
                 )
                 return
 
+            # Record summary check
             db.record_request(
                 source="telegram",
                 url=urls[0],
                 status="CHECKED",
-                detail=f"Playlist: {analysis.found_count} found, {analysis.missing_count} missing out of {analysis.total_count}",
+                detail=f"Playlist: {analysis.found_count} found, {analysis.missing_count} missing ({analysis.downloadable_count} downloadable) out of {analysis.total_count}",
             )
 
-            if analysis.missing_count == 0:
+            unavail_count = analysis.missing_count - analysis.downloadable_count
+
+            if analysis.downloadable_count == 0:
+                unavail_msg = f"\n(※ {unavail_count} video(s) are unavailable/private)" if unavail_count > 0 else ""
                 text = (
                     f"<b>Playlist: {html.escape(analysis.title)}</b>\n\n"
                     f"• Total Videos: <b>{analysis.total_count}</b>\n"
-                    f"• Already Saved: <b>{analysis.found_count}</b>\n\n"
-                    f"<b>All videos in this playlist are already saved!</b>"
+                    f"• Already Saved: <b>{analysis.found_count}</b>\n"
                 )
+                if unavail_count > 0:
+                    text += f"• Unavailable/Private: <b>{unavail_count}</b>\n"
+                text += f"\n<b>All downloadable videos in this playlist are already saved!</b>{unavail_msg}"
                 await status_msg.edit_text(text, parse_mode="HTML")
                 return
 
+            downloadable_urls = [it.url for it in analysis.missing_items if it.downloadable]
             action_id = str(uuid.uuid4())[:8]
-            ACTION_CACHE[action_id] = [it.url for it in analysis.missing_items]
+            ACTION_CACHE[action_id] = downloadable_urls
             ACTION_METADATA[action_id] = {"playlist_id": analysis.playlist_id}
 
             text = (
                 f"<b>Playlist: {html.escape(analysis.title)}</b>\n\n"
                 f"• Total Videos: <b>{analysis.total_count}</b>\n"
                 f"• Already Saved: <b>{analysis.found_count}</b>\n"
-                f"• Missing Videos: <b>{analysis.missing_count}</b>\n\n"
-                f"Download missing video(s) now via MeTube?"
+                f"• Missing Videos: <b>{analysis.missing_count}</b> (<b>{analysis.downloadable_count}</b> downloadable)\n"
             )
+            if unavail_count > 0:
+                text += f"• Unavailable/Private: <b>{unavail_count}</b>\n"
+            text += f"\nDownload {analysis.downloadable_count} missing video(s) now via MeTube?"
+
             keyboard = [
                 [
                     InlineKeyboardButton(
-                        f"Download ({analysis.missing_count})",
+                        f"Download ({analysis.downloadable_count})",
                         callback_data=f"dl_bulk:{action_id}",
                     )
                 ]

@@ -535,3 +535,82 @@ async def test_handle_playlist_message(tmp_path: Path, monkeypatch):
     assert reply_markup is not None
     assert reply_markup.inline_keyboard[0][0].text == "Download (1)"
 
+
+@pytest.mark.asyncio
+async def test_telegram_playlist_with_unavailable_videos(tmp_path: Path, monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+    import yt_dlp
+    from yt_manager.playlist import clear_playlist_cache
+    from yt_manager.telegram_bot import TelegramBotService
+
+    clear_playlist_cache()
+    db_path = tmp_path / "tg_unavail.db"
+    db = Database(db_path)
+    db.sync_all([("youtube", "vidA", "/media/Artist/Song A [youtube-vidA].mp4")])
+
+    settings = Settings(media_dir=tmp_path / "media", db_path=db_path)
+    service = TelegramBotService(settings)
+
+    mock_entries = [
+        {"id": "vidA", "title": "Song A", "url": "https://www.youtube.com/watch?v=vidA"},
+        {"id": "vidB", "title": "Song B", "url": "https://www.youtube.com/watch?v=vidB"},
+        {"id": "privC", "title": "[비공개 동영상]", "url": "https://www.youtube.com/watch?v=privC"},
+    ]
+
+    class MockYoutubeDL:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def extract_info(self, url, download=False, process=False):
+            return {
+                "_type": "playlist",
+                "id": "PL_TG_UNAVAIL",
+                "title": "TG Unavail",
+                "entries": mock_entries,
+            }
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", MockYoutubeDL)
+
+    mock_update = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = 12345
+    mock_update.effective_user = mock_user
+
+    mock_status_msg = AsyncMock()
+    mock_update.message.reply_text = AsyncMock(return_value=mock_status_msg)
+    mock_update.message.text = "https://www.youtube.com/playlist?list=PL_TG_UNAVAIL"
+
+    # Case 1: 1 saved, 1 downloadable, 1 private
+    await service.handle_text_message(mock_update, MagicMock())
+    mock_status_msg.edit_text.assert_awaited_once()
+    edited_text = mock_status_msg.edit_text.call_args[0][0]
+    assert "Unavailable/Private: <b>1</b>" in edited_text
+    assert "1</b> downloadable" in edited_text
+
+    # Button must be Download (1) (only the downloadable one)
+    reply_markup = mock_status_msg.edit_text.call_args[1].get("reply_markup")
+    assert reply_markup is not None
+    assert reply_markup.inline_keyboard[0][0].text == "Download (1)"
+
+    # Case 2: Now vidB is also saved in DB, only private video left
+    db.sync_all([
+        ("youtube", "vidA", "/media/Artist/Song A [youtube-vidA].mp4"),
+        ("youtube", "vidB", "/media/Artist/Song B [youtube-vidB].mp4"),
+    ])
+    mock_status_msg.edit_text.reset_mock()
+    await service.handle_text_message(mock_update, MagicMock())
+
+    mock_status_msg.edit_text.assert_awaited_once()
+    edited_text2 = mock_status_msg.edit_text.call_args[0][0]
+    assert "All downloadable videos in this playlist are already saved!" in edited_text2
+    # No download button should be rendered when downloadable_count == 0
+    reply_markup2 = mock_status_msg.edit_text.call_args[1].get("reply_markup")
+    assert reply_markup2 is None
+
+

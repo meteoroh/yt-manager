@@ -38,10 +38,45 @@ def _clone_playlist_info(info: "PlaylistInfo") -> "PlaylistInfo":
                 title=it.title,
                 url=it.url,
                 extractor=it.extractor,
+                file_path=it.file_path,
+                folder=it.folder,
+                downloadable=it.downloadable,
             )
             for it in info.items
         ],
     )
+
+
+UNAVAILABLE_TITLE_PATTERNS = [
+    re.compile(r"^\[?(?:private video|deleted video|unavailable video)\]?$", re.IGNORECASE),
+    re.compile(r"^\[?(?:비공개 동영상|삭제된 동영상|사용할 수 없는 동영상)\]?$", re.IGNORECASE),
+]
+
+
+def _is_entry_unavailable(entry: dict, title: str) -> bool:
+    """
+    Check if a playlist video entry is private, deleted, or otherwise unplayable.
+    """
+    if not entry:
+        return True
+
+    # 1. Check yt-dlp availability flags
+    availability = str(entry.get("availability") or "").lower()
+    if availability in ("private", "needs_auth"):
+        return True
+    if entry.get("is_private") is True:
+        return True
+
+    # 2. Check title placeholders or missing title (YouTube returns None/empty title for private/deleted videos)
+    clean_title = title.strip()
+    if not clean_title:
+        return True
+
+    for pat in UNAVAILABLE_TITLE_PATTERNS:
+        if pat.search(clean_title):
+            return True
+
+    return False
 
 
 PLAYLIST_URL_PATTERNS = [
@@ -89,6 +124,7 @@ class PlaylistItem:
     extractor: str = "youtube"
     file_path: Optional[str] = None
     folder: Optional[str] = None
+    downloadable: bool = True
 
 
 @dataclass
@@ -108,8 +144,10 @@ class PlaylistAnalysis:
     total_count: int
     found_count: int
     missing_count: int
+    downloadable_count: int = 0
     found_items: list[PlaylistItem] = field(default_factory=list)
     missing_items: list[PlaylistItem] = field(default_factory=list)
+
 
 
 def extract_playlist_info(
@@ -173,12 +211,15 @@ def extract_playlist_info(
                 raw_ie = entry.get("ie_key") or entry.get("extractor") or "youtube"
                 extractor = raw_ie.lower().split(":")[0]
 
+                is_unavail = _is_entry_unavailable(entry, v_title)
+
                 items.append(
                     PlaylistItem(
                         video_id=str(v_id),
                         title=v_title,
                         url=v_url,
                         extractor=extractor,
+                        downloadable=not is_unavail,
                     )
                 )
 
@@ -245,6 +286,8 @@ def analyze_playlist(
         else:
             missing_items.append(item)
 
+    downloadable_count = sum(1 for it in missing_items if it.downloadable)
+
     return PlaylistAnalysis(
         playlist_id=info.playlist_id,
         title=info.title,
@@ -252,6 +295,7 @@ def analyze_playlist(
         total_count=len(info.items),
         found_count=len(found_items),
         missing_count=len(missing_items),
+        downloadable_count=downloadable_count,
         found_items=found_items,
         missing_items=missing_items,
     )

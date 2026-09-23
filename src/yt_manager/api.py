@@ -46,6 +46,7 @@ class PlaylistItemResponse(BaseModel):
     extractor: str
     file_path: Optional[str] = None
     folder: Optional[str] = None
+    downloadable: bool = True
 
 
 class PlaylistCheckDetail(BaseModel):
@@ -55,6 +56,7 @@ class PlaylistCheckDetail(BaseModel):
     total_count: int
     found_count: int
     missing_count: int
+    downloadable_count: int = 0
     found_items: list[PlaylistItemResponse] = []
     missing_items: list[PlaylistItemResponse] = []
     download_triggered: bool = False
@@ -233,6 +235,17 @@ async def check_single_video_internal(
     return resp
 
 
+def format_playlist_message(pl_data: PlaylistCheckDetail) -> str:
+    unavail_count = pl_data.missing_count - pl_data.downloadable_count
+    if pl_data.downloadable_count == 0:
+        if unavail_count > 0:
+            return f"Playlist: All downloadable videos are already saved!\n({unavail_count} unavailable/private)"
+        return f"Playlist: All {pl_data.total_count} video(s) already exist in storage."
+    else:
+        unavail_str = f", {unavail_count} unavailable" if unavail_count > 0 else ""
+        return f"Playlist: {pl_data.downloadable_count} downloadable out of {pl_data.missing_count} missing\n({pl_data.found_count} already saved{unavail_str})"
+
+
 async def check_playlist_internal(
     url: str,
     db: Database,
@@ -253,6 +266,7 @@ async def check_playlist_internal(
             extractor=it.extractor,
             file_path=it.file_path,
             folder=it.folder,
+            downloadable=it.downloadable,
         )
         for it in analysis.found_items
     ]
@@ -262,6 +276,7 @@ async def check_playlist_internal(
             title=it.title,
             url=it.url,
             extractor=it.extractor,
+            downloadable=it.downloadable,
         )
         for it in analysis.missing_items
     ]
@@ -274,12 +289,13 @@ async def check_playlist_internal(
         source="api",
         url=url,
         status="CHECKED",
-        detail=f"Playlist: {analysis.found_count} found, {analysis.missing_count} missing out of {analysis.total_count}",
+        detail=f"Playlist: {analysis.found_count} found, {analysis.missing_count} missing ({analysis.downloadable_count} downloadable) out of {analysis.total_count}",
     )
 
     # 2. If auto-download triggered, record each queued video individually
-    if auto_download_missing and metube and analysis.missing_items:
-        urls_to_download = [it.url for it in analysis.missing_items]
+    downloadable_missing = [it for it in analysis.missing_items if it.downloadable]
+    if auto_download_missing and metube and downloadable_missing:
+        urls_to_download = [it.url for it in downloadable_missing]
         success_count, results = await metube.add_bulk_downloads(
             urls=urls_to_download,
             quality=quality,
@@ -290,7 +306,7 @@ async def check_playlist_internal(
             "failed_count": len(urls_to_download) - success_count,
             "results": results,
         }
-        for it, r in zip(analysis.missing_items, results):
+        for it, r in zip(downloadable_missing, results):
             detail = f"Playlist: {analysis.playlist_id}" if r.get("success") else str(r.get("error", "Unknown error"))
             db.record_request(
                 source="api",
@@ -308,6 +324,7 @@ async def check_playlist_internal(
         total_count=analysis.total_count,
         found_count=analysis.found_count,
         missing_count=analysis.missing_count,
+        downloadable_count=analysis.downloadable_count,
         found_items=found_responses,
         missing_items=missing_responses,
         download_triggered=dl_triggered,
@@ -343,7 +360,7 @@ async def check_url(
             return CheckResponse(
                 type="playlist",
                 playlist=pl_data,
-                message=f"Playlist: {pl_data.missing_count} missing out of {pl_data.total_count} video(s).",
+                message=format_playlist_message(pl_data),
             )
 
     # 2. Check as single video
@@ -375,7 +392,7 @@ async def check_url(
         return CheckResponse(
             type="playlist",
             playlist=pl_data,
-            message=f"Playlist: {pl_data.missing_count} missing out of {pl_data.total_count} video(s).",
+            message=format_playlist_message(pl_data),
         )
 
     # 4. Invalid
@@ -499,7 +516,7 @@ async def download_video(
 
     clean_url = req.url.strip()
 
-    # B-1: Playlist URL -> Filter existing, queue only missing
+    # B-1: Playlist URL -> Filter existing, queue only downloadable missing
     if is_playlist_url(clean_url):
         effective_max = req.max_items or settings.playlist_max_items
         analysis = analyze_playlist(clean_url, db, max_items=effective_max)
@@ -511,28 +528,31 @@ async def download_video(
                 message="Failed to parse playlist or playlist is empty.",
             )
 
-        if not analysis.missing_items:
+        downloadable_missing = [it for it in analysis.missing_items if it.downloadable]
+        unavail_count = analysis.missing_count - analysis.downloadable_count
+
+        if not downloadable_missing:
             db.record_request(
                 source="api",
                 url=clean_url,
                 status="EXISTS",
-                detail=f"Playlist: all {analysis.total_count} videos already exist",
+                detail=f"Playlist: {analysis.found_count} saved, {unavail_count} unavailable, 0 downloadable",
             )
             return DownloadResponse(
                 success=True,
                 queued_count=0,
                 skipped_count=analysis.total_count,
-                message=f"All {analysis.total_count} video(s) in playlist already exist in storage. Skipped.",
+                message=f"No downloadable videos to queue ({analysis.found_count} saved, {unavail_count} unavailable/private). Skipped.",
             )
 
-        urls_to_download = [it.url for it in analysis.missing_items]
+        urls_to_download = [it.url for it in downloadable_missing]
         success_count, results = await metube.add_bulk_downloads(
             urls=urls_to_download,
             quality=req.quality,
             format_type=req.format_type,
             folder=req.folder,
         )
-        for it, r in zip(analysis.missing_items, results):
+        for it, r in zip(downloadable_missing, results):
             detail = f"Playlist: {analysis.playlist_id}" if r.get("success") else str(r.get("error", "Unknown error"))
             db.record_request(
                 source="api",
@@ -542,11 +562,12 @@ async def download_video(
                 status="QUEUED" if r.get("success") else "FAILED",
                 detail=detail,
             )
+        skipped_total = analysis.found_count + unavail_count
         return DownloadResponse(
             success=(success_count > 0),
             queued_count=success_count,
-            skipped_count=analysis.found_count,
-            message=f"Successfully queued {success_count} missing video(s) to MeTube ({analysis.found_count} already exist, skipped).",
+            skipped_count=skipped_total,
+            message=f"Successfully queued {success_count} downloadable video(s) to MeTube ({skipped_total} skipped: {analysis.found_count} saved, {unavail_count} unavailable).",
             details={"results": results},
         )
 

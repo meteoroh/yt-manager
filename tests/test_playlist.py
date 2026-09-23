@@ -344,3 +344,71 @@ def test_playlist_cache_max_items_separation(monkeypatch):
     assert info_2_again.total_items == 2
     assert call_count == 2
 
+
+def test_playlist_unavailable_detection(tmp_path: Path, monkeypatch):
+    from yt_manager.playlist import clear_playlist_cache
+
+    clear_playlist_cache()
+    db = Database(tmp_path / "unavail.db")
+
+    mock_entries = [
+        {"id": "pub1", "title": "Public Video", "url": "https://youtube.com/watch?v=pub1", "availability": "public"},
+        {"id": "priv1", "title": "Secret Video", "url": "https://youtube.com/watch?v=priv1", "availability": "private"},
+        {"id": "priv2", "title": "[Private video]", "url": "https://youtube.com/watch?v=priv2"},
+        {"id": "priv3", "title": "[비공개 동영상]", "url": "https://youtube.com/watch?v=priv3"},
+        {"id": "del1", "title": "[Deleted video]", "url": "https://youtube.com/watch?v=del1"},
+        {"id": "auth1", "title": "Needs Login", "url": "https://youtube.com/watch?v=auth1", "is_private": True},
+    ]
+
+    class MockYoutubeDL:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def extract_info(self, url, download=False, process=False):
+            return {
+                "_type": "playlist",
+                "id": "PL_UNAVAIL",
+                "title": "Unavail Test",
+                "entries": mock_entries,
+            }
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", MockYoutubeDL)
+
+    url = "https://www.youtube.com/playlist?list=PL_UNAVAIL"
+    info = extract_playlist_info(url)
+    assert info is not None
+    assert info.total_items == 6
+
+    # Verify downloadable flag per item
+    items_by_id = {it.video_id: it for it in info.items}
+    assert items_by_id["pub1"].downloadable is True
+    assert items_by_id["priv1"].downloadable is False
+    assert items_by_id["priv2"].downloadable is False
+    assert items_by_id["priv3"].downloadable is False
+    assert items_by_id["del1"].downloadable is False
+    assert items_by_id["auth1"].downloadable is False
+
+    # Analysis 1: None in DB
+    analysis1 = analyze_playlist(url, db)
+    assert analysis1 is not None
+    assert analysis1.total_count == 6
+    assert analysis1.found_count == 0
+    assert analysis1.missing_count == 6
+    assert analysis1.downloadable_count == 1  # Only pub1 is downloadable!
+
+    # Analysis 2: priv1 was previously saved in DB!
+    db.sync_all([("youtube", "priv1", "/media/Artist/Secret [youtube-priv1].mp4")])
+    analysis2 = analyze_playlist(url, db)
+    assert analysis2 is not None
+    assert analysis2.total_count == 6
+    assert analysis2.found_count == 1
+    assert analysis2.missing_count == 5
+    assert analysis2.downloadable_count == 1  # pub1 is still the only downloadable missing video
+
+

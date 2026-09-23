@@ -420,3 +420,105 @@ def test_api_ios_shortcut_check_then_download_cache_hit(test_env, monkeypatch):
     assert extract_call_count == 1
 
 
+def test_api_playlist_with_unavailable_videos(test_env, monkeypatch):
+    """
+    Tests that:
+    1. /check returns downloadable_count and per-item downloadable flags.
+    2. /download queues ONLY the downloadable items to MeTube (private/deleted skipped).
+    3. When downloadable_count == 0, message states all downloadable videos saved,
+       and /download queues 0 items without errors.
+    """
+    from yt_manager.playlist import clear_playlist_cache
+    from yt_manager.metube import MeTubeClient
+    import yt_dlp
+
+    clear_playlist_cache()
+    client = TestClient(app)
+
+    mock_entries = [
+        {"id": "playableVid1", "title": "Playable Song", "url": "https://www.youtube.com/watch?v=playableVid1", "ie_key": "Youtube"},
+        {"id": "privateVid22", "title": "[비공개 동영상]", "url": "https://www.youtube.com/watch?v=privateVid22", "ie_key": "Youtube"},
+    ]
+
+    class MockYoutubeDL:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def extract_info(self, url, download=False, process=False):
+            return {
+                "_type": "playlist",
+                "id": "PL_UNAVAIL_API",
+                "title": "Unavail API Playlist",
+                "entries": mock_entries,
+            }
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", MockYoutubeDL)
+
+    queued_urls = []
+    async def mock_bulk(self, urls, **kwargs):
+        queued_urls.extend(urls)
+        return len(urls), [{"success": True, "url": u} for u in urls]
+
+    monkeypatch.setattr(MeTubeClient, "add_bulk_downloads", mock_bulk)
+
+    playlist_url = "https://www.youtube.com/playlist?list=PL_UNAVAIL_API"
+
+    # 1. /check with unavail mixed playlist
+    resp_check = client.post("/check", json={"url": playlist_url})
+    assert resp_check.status_code == 200
+    data_check = resp_check.json()
+    assert data_check["type"] == "playlist"
+    pl = data_check["playlist"]
+    assert pl["total_count"] == 2
+    assert pl["found_count"] == 0
+    assert pl["missing_count"] == 2
+    assert pl["downloadable_count"] == 1
+    assert "1 downloadable out of 2 missing" in data_check["message"]
+    assert "1 unavailable" in data_check["message"]
+
+    # Check missing items flags
+    items_by_id = {it["video_id"]: it for it in pl["missing_items"]}
+    assert items_by_id["playableVid1"]["downloadable"] is True
+    assert items_by_id["privateVid22"]["downloadable"] is False
+
+    # 2. /download: Should queue ONLY playableVid1, NOT privateVid22
+    resp_dl = client.post("/download", json={"url": playlist_url})
+    assert resp_dl.status_code == 200
+    data_dl = resp_dl.json()
+    assert data_dl["success"] is True
+    assert data_dl["queued_count"] == 1
+    assert data_dl["skipped_count"] == 1  # 1 unavailable skipped
+    assert len(queued_urls) == 1
+    assert "playableVid1" in queued_urls[0]
+
+    # 3. Simulate playableVid1 is now downloaded and saved in DB
+    test_db = test_env["db"]
+    test_db.sync_all([("youtube", "playableVid1", "/media/Artist/Playable [youtube-playableVid1].mp4")])
+
+    # Now /check should report 0 downloadable missing videos
+    resp_check2 = client.post("/check", json={"url": playlist_url})
+    assert resp_check2.status_code == 200
+    data_check2 = resp_check2.json()
+    pl2 = data_check2["playlist"]
+    assert pl2["found_count"] == 1
+    assert pl2["missing_count"] == 1
+    assert pl2["downloadable_count"] == 0
+    assert "All downloadable videos are already saved" in data_check2["message"]
+
+    # /download should skip everything cleanly
+    queued_urls.clear()
+    resp_dl2 = client.post("/download", json={"url": playlist_url})
+    assert resp_dl2.status_code == 200
+    data_dl2 = resp_dl2.json()
+    assert data_dl2["success"] is True
+    assert data_dl2["queued_count"] == 0
+    assert len(queued_urls) == 0
+
+
+
