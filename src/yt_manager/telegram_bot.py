@@ -78,25 +78,36 @@ def analyze_urls(
     db: Database,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """
-    Analyze given URLs against the database.
+    Analyze given URLs against the database, deduplicating items with the same video ID.
     Returns: (found_items, missing_items, invalid_urls)
     """
     found = []
     missing = []
     invalid = []
+    seen_video_keys: set[tuple[str, str]] = set()
 
     for url in urls:
         parsed = extract_from_url(url)
         if not parsed:
-            invalid.append(url)
+            if url not in invalid:
+                invalid.append(url)
             continue
 
         extractor, video_id = parsed
+        if (extractor, video_id) in seen_video_keys:
+            continue
+
         file_path = db.find_by_id(extractor, video_id)
         if not file_path:
             fb = db.find_by_video_id_only(video_id)
             if fb:
                 extractor, file_path = fb
+
+        if (extractor, video_id) in seen_video_keys:
+            continue
+
+        seen_video_keys.add((extractor, video_id))
+        seen_video_keys.add(parsed)
 
         if file_path:
             found.append({
@@ -493,7 +504,11 @@ class TelegramBotService:
             return
 
         # Case 2: Bulk URLs (2 or more)
-        report_lines = [f"<b>Checked {len(urls)} link(s)</b>\n"]
+        total_unique = len(found) + len(missing) + len(invalid)
+        if total_unique < len(urls):
+            report_lines = [f"<b>Checked {len(urls)} link(s) ({total_unique} unique)</b>\n"]
+        else:
+            report_lines = [f"<b>Checked {len(urls)} link(s)</b>\n"]
 
         if found:
             report_lines.append(f"<b>Already Saved ({len(found)}):</b>")

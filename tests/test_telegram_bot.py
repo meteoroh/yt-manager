@@ -58,6 +58,103 @@ def test_analyze_urls_workflow(tmp_path: Path):
     assert invalid[0] == "https://invalid-non-media.com/something"
 
 
+def test_analyze_urls_deduplication(tmp_path: Path):
+    db_path = tmp_path / "tg_dedup.db"
+    db = Database(db_path)
+
+    # Saved item
+    db.sync_all([
+        ("youtube", "dQw4w9WgXcQ", "/media/아이유/좋은날 [youtube-dQw4w9WgXcQ].mp4")
+    ])
+
+    test_urls = [
+        # Duplicate existing video via watch & youtu.be
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://youtu.be/dQw4w9WgXcQ",
+        # Duplicate missing video via shorts & watch
+        "https://www.youtube.com/shorts/missinVid11",
+        "https://www.youtube.com/watch?v=missinVid11",
+        # Duplicate missing video via twitter & x.com
+        "https://twitter.com/user/status/123456789012345",
+        "https://x.com/user/status/123456789012345",
+        # Duplicate invalid URLs
+        "https://invalid-url.com/foo",
+        "https://invalid-url.com/foo",
+    ]
+
+    found, missing, invalid = analyze_urls(test_urls, db)
+
+    # Found: exactly 1 unique item
+    assert len(found) == 1
+    assert found[0]["video_id"] == "dQw4w9WgXcQ"
+
+    # Missing: exactly 2 unique items (missinVid11, 123456789012345)
+    assert len(missing) == 2
+    missing_ids = [m["video_id"] for m in missing]
+    assert missing_ids == ["missinVid11", "123456789012345"]
+
+    # Invalid: exactly 1 unique invalid URL
+    assert len(invalid) == 1
+    assert invalid[0] == "https://invalid-url.com/foo"
+
+
+@pytest.mark.asyncio
+async def test_process_and_respond_bulk_duplicates(tmp_path: Path, monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+    from yt_manager.telegram_bot import TelegramBotService, ACTION_CACHE
+
+    db_path = tmp_path / "tg_bulk_dedup.db"
+    db = Database(db_path)
+    db.sync_all([("youtube", "saved111111", "/media/folder/saved111111.mp4")])
+
+    settings = Settings(db_path=db_path)
+    service = TelegramBotService(settings)
+
+    mock_update = MagicMock()
+    mock_update.message = AsyncMock()
+
+    sent_lines = []
+    sent_markup = None
+
+    async def mock_send_chunked_reply(msg, lines, parse_mode="HTML", reply_markup=None):
+        nonlocal sent_lines, sent_markup
+        sent_lines.extend(lines)
+        sent_markup = reply_markup
+
+    monkeypatch.setattr("yt_manager.telegram_bot.send_chunked_reply", mock_send_chunked_reply)
+
+    urls = [
+        "https://www.youtube.com/watch?v=saved111111",
+        "https://youtu.be/saved111111",
+        "https://www.youtube.com/watch?v=missing2222",
+        "https://youtu.be/missing2222",
+    ]
+
+    await service._process_and_respond(mock_update, urls)
+
+    full_text = "\n".join(sent_lines)
+    # Header should reflect 4 links checked, 2 unique
+    assert "Checked 4 link(s) (2 unique)" in full_text
+    assert "Already Saved (1):" in full_text
+    assert "saved111111" in full_text
+    assert "Missing (1):" in full_text
+    assert "missing2222" in full_text
+
+    # Reply markup button should be Download (1)
+    assert sent_markup is not None
+    button = sent_markup.inline_keyboard[0][0]
+    assert button.text == "Download (1)"
+
+    # Action cache should contain only 1 missing URL
+    action_id = button.callback_data.split(":")[1]
+    assert len(ACTION_CACHE[action_id]) == 1
+    assert "missing2222" in ACTION_CACHE[action_id][0]
+
+    # History in DB should only have 2 entries
+    history = db.get_history(limit=10)
+    assert len(history) == 2
+
+
 def test_is_user_allowed():
     # When whitelist is empty -> all allowed
     empty_settings = Settings(telegram_allowed_users="")
