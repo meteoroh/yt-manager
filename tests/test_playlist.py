@@ -412,3 +412,55 @@ def test_playlist_unavailable_detection(tmp_path: Path, monkeypatch):
     assert analysis2.downloadable_count == 1  # pub1 is still the only downloadable missing video
 
 
+def test_playlist_deduplication(tmp_path: Path, monkeypatch):
+    from yt_manager.playlist import clear_playlist_cache
+
+    clear_playlist_cache()
+    db = Database(tmp_path / "dedup.db")
+    db.sync_all([("youtube", "vid1", "/media/Artist/Vid1 [youtube-vid1].mp4")])
+
+    mock_entries = [
+        {"id": "vid1", "title": "Video 1", "url": "https://youtube.com/watch?v=vid1"},
+        {"id": "vid2", "title": "Video 2", "url": "https://youtube.com/watch?v=vid2"},
+        {"id": "vid1", "title": "Video 1 (Duplicate)", "url": "https://youtube.com/watch?v=vid1"},
+        {"id": "vid3", "title": "Video 3", "url": "https://youtube.com/watch?v=vid3"},
+        {"id": "vid2", "title": "Video 2 (Duplicate)", "url": "https://youtube.com/watch?v=vid2"},
+    ]
+
+    class MockYoutubeDL:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def extract_info(self, url, download=False, process=False):
+            return {
+                "_type": "playlist",
+                "id": "PL_DEDUP",
+                "title": "Dedup Test",
+                "entries": mock_entries,
+            }
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", MockYoutubeDL)
+
+    url = "https://www.youtube.com/playlist?list=PL_DEDUP"
+    info = extract_playlist_info(url)
+    assert info is not None
+    # 5 entries in raw, but only 3 unique
+    assert info.total_items == 3
+    assert [it.video_id for it in info.items] == ["vid1", "vid2", "vid3"]
+
+    analysis = analyze_playlist(url, db)
+    assert analysis is not None
+    assert analysis.total_count == 3
+    assert analysis.found_count == 1   # vid1
+    assert analysis.missing_count == 2 # vid2, vid3
+    assert analysis.downloadable_count == 2
+    assert [it.video_id for it in analysis.missing_items] == ["vid2", "vid3"]
+
+
+

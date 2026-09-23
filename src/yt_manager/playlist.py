@@ -196,6 +196,7 @@ def extract_playlist_info(
             raw_entries = info.get("entries") or []
 
             items: list[PlaylistItem] = []
+            seen_video_ids: set[str] = set()
             for entry in raw_entries:
                 if len(items) >= max_items:
                     break
@@ -204,10 +205,15 @@ def extract_playlist_info(
                 v_id = entry.get("id")
                 if not v_id:
                     continue
+                str_vid = str(v_id)
+                if str_vid in seen_video_ids:
+                    continue
+                seen_video_ids.add(str_vid)
+
                 v_title = entry.get("title") or ""
-                v_url = entry.get("url") or f"https://www.youtube.com/watch?v={v_id}"
+                v_url = entry.get("url") or f"https://www.youtube.com/watch?v={str_vid}"
                 if not v_url.startswith("http"):
-                    v_url = f"https://www.youtube.com/watch?v={v_id}"
+                    v_url = f"https://www.youtube.com/watch?v={str_vid}"
                 raw_ie = entry.get("ie_key") or entry.get("extractor") or "youtube"
                 extractor = raw_ie.lower().split(":")[0]
 
@@ -215,7 +221,7 @@ def extract_playlist_info(
 
                 items.append(
                     PlaylistItem(
-                        video_id=str(v_id),
+                        video_id=str_vid,
                         title=v_title,
                         url=v_url,
                         extractor=extractor,
