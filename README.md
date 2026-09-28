@@ -51,7 +51,7 @@ uv run yt-manager      # Starts on http://0.0.0.0:8000
 
 ### 📱 iOS Shortcut
 Verify ownership and trigger downloads directly from the iOS Share Sheet:  
-👉 **[Download Official iOS Shortcut (iCloud)](https://www.icloud.com/shortcuts/d7f73ccd0af945c8993fea6514146167)**
+👉 **[Download Official iOS Shortcut (iCloud)](https://www.icloud.com/shortcuts/7074809c1ab54cce92d52ee107f313a6)**
 
 ### 🤖 Telegram Bot
 Works over LTE/5G via Long Polling (no port forwarding or VPN needed).
