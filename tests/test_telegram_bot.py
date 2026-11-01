@@ -170,14 +170,21 @@ def test_is_user_allowed():
 
 @pytest.mark.asyncio
 async def test_metube_add_bulk_downloads():
-    metube = MeTubeClient("http://mock-metube:8081")
+    import asyncio
+    metube = MeTubeClient("http://mock-metube:8081", max_concurrency=2)
 
     # Mock httpx using custom transport or monkeypatch
     call_count = 0
+    in_flight = 0
+    max_in_flight = 0
 
     async def mock_post(client_self, url, *args, **kwargs):
-        nonlocal call_count
+        nonlocal call_count, in_flight, max_in_flight
         call_count += 1
+        in_flight += 1
+        max_in_flight = max(max_in_flight, in_flight)
+        await asyncio.sleep(0.01)
+        in_flight -= 1
         return httpx.Response(200, json={"status": "ok"}, request=httpx.Request("POST", url))
 
     # Test with custom client mocking
@@ -185,6 +192,8 @@ async def test_metube_add_bulk_downloads():
         "https://youtube.com/watch?v=1",
         "https://youtube.com/watch?v=2",
         "https://youtube.com/watch?v=3",
+        "https://youtube.com/watch?v=4",
+        "https://youtube.com/watch?v=5",
     ]
 
     # Temporarily monkeypatch httpx.AsyncClient.post
@@ -193,9 +202,10 @@ async def test_metube_add_bulk_downloads():
     try:
         httpx.AsyncClient.post = mock_post
         success_count, results = await metube.add_bulk_downloads(urls)
-        assert success_count == 3
-        assert len(results) == 3
-        assert call_count == 3
+        assert success_count == 5
+        assert len(results) == 5
+        assert call_count == 5
+        assert max_in_flight <= 2
     finally:
         httpx.AsyncClient.post = original_post
 
@@ -212,6 +222,10 @@ async def test_metube_error_handling():
             request=httpx.Request("POST", url),
         )
 
+    # Case 2: MeTube times out
+    async def mock_post_timeout(client_self, url, *args, **kwargs):
+        raise httpx.ReadTimeout("", request=httpx.Request("POST", url))
+
     import httpx
     original_post = httpx.AsyncClient.post
     try:
@@ -224,6 +238,12 @@ async def test_metube_error_handling():
         success_cnt, results = await metube.add_bulk_downloads(["https://youtube.com/watch?v=private"])
         assert success_cnt == 0
         assert results[0]["success"] is False
+
+        # Timeout error handling
+        httpx.AsyncClient.post = mock_post_timeout
+        timeout_res = await metube.add_download("https://youtube.com/watch?v=slow")
+        assert timeout_res["success"] is False
+        assert "timed out" in timeout_res["error"]
     finally:
         httpx.AsyncClient.post = original_post
 

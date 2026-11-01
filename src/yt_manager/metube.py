@@ -1,10 +1,15 @@
+import asyncio
 from typing import Any, Optional
 import httpx
 
+DEFAULT_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+DEFAULT_BULK_CONCURRENCY = 3
+
 
 class MeTubeClient:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, max_concurrency: int = DEFAULT_BULK_CONCURRENCY):
         self.base_url = base_url.rstrip("/")
+        self.max_concurrency = max(1, max_concurrency)
 
     async def add_download(
         self,
@@ -25,7 +30,7 @@ class MeTubeClient:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
                 response = await client.post(endpoint, json=payload)
                 response.raise_for_status()
 
@@ -53,6 +58,11 @@ class MeTubeClient:
                     "status_code": response.status_code,
                     "data": data,
                 }
+        except httpx.TimeoutException:
+            return {
+                "success": False,
+                "error": "MeTube request timed out waiting for metadata",
+            }
         except httpx.HTTPStatusError as e:
             return {
                 "success": False,
@@ -72,20 +82,21 @@ class MeTubeClient:
         folder: str = "",
     ) -> tuple[int, list[dict[str, Any]]]:
         """
-        Send multiple download requests to MeTube in parallel.
+        Send multiple download requests to MeTube with bounded concurrency.
         Returns: (success_count, list_of_results)
         """
-        import asyncio
+        semaphore = asyncio.Semaphore(self.max_concurrency)
 
-        tasks = [
-            self.add_download(
-                url=url,
-                quality=quality,
-                format_type=format_type,
-                folder=folder,
-            )
-            for url in urls
-        ]
+        async def _bounded_add(url: str) -> dict[str, Any]:
+            async with semaphore:
+                return await self.add_download(
+                    url=url,
+                    quality=quality,
+                    format_type=format_type,
+                    folder=folder,
+                )
+
+        tasks = [_bounded_add(url) for url in urls]
         results = await asyncio.gather(*tasks, return_exceptions=False)
         success_count = sum(1 for r in results if r.get("success"))
         return success_count, list(results)
