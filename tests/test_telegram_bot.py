@@ -837,3 +837,65 @@ async def test_telegram_pause_and_resume(tmp_path: Path):
         resume_auto_scan()
 
 
+@pytest.mark.asyncio
+async def test_telegram_timezone_formatting(tmp_path: Path):
+    from unittest.mock import AsyncMock, MagicMock
+    from yt_manager.scanner import current_stats, resume_auto_scan
+    from yt_manager.telegram_bot import TelegramBotService
+
+    db_path = tmp_path / "tg_tz.db"
+    db = Database(db_path)
+    media_dir = tmp_path / "media"
+    downloads_dir = tmp_path / "downloads"
+    media_dir.mkdir()
+    downloads_dir.mkdir()
+
+    # Record a late-night UTC request that rolls over to the next day in KST (+09:00)
+    db.record_request(
+        source="telegram",
+        url="https://youtube.com/watch?v=tztest12345",
+        status="EXISTS",
+        extractor="youtube",
+        video_id="tztest12345",
+        created_at="2026-11-21T23:30:00+00:00",
+    )
+
+    settings = Settings(
+        media_dir=media_dir,
+        downloads_dir=downloads_dir,
+        db_path=db_path,
+        tz="Asia/Seoul",
+    )
+    service = TelegramBotService(settings)
+
+    mock_update = MagicMock()
+    mock_update.effective_user = MagicMock(id=12345)
+    mock_update.message = AsyncMock()
+    mock_context = MagicMock()
+    mock_context.args = []
+
+    orig_last_scanned = current_stats.last_scanned_at
+    try:
+        # 1. /history converts UTC -> Asia/Seoul (2026-11-22 08:30)
+        await service.handle_history(mock_update, mock_context)
+        hist_text = mock_update.message.reply_text.call_args[0][0]
+        assert "2026-11-22 08:30" in hist_text
+
+        # 2. /status converts last_scanned_at UTC -> Asia/Seoul KST
+        current_stats.last_scanned_at = "2026-11-21T10:15:30+00:00"
+        mock_update.message.reply_text.reset_mock()
+        await service.handle_status(mock_update, mock_context)
+        status_text = mock_update.message.reply_text.call_args[0][0]
+        assert "2026-11-21 19:15:30 KST" in status_text
+
+        # 3. /pause 2h renders KST timezone label
+        mock_update.message.reply_text.reset_mock()
+        mock_context.args = ["2h"]
+        await service.handle_pause(mock_update, mock_context)
+        pause_text = mock_update.message.reply_text.call_args[0][0]
+        assert "KST" in pause_text
+    finally:
+        current_stats.last_scanned_at = orig_last_scanned
+        resume_auto_scan()
+
+

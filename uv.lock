@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -755,6 +755,7 @@ dependencies = [
     { name = "httpx" },
     { name = "pydantic-settings" },
     { name = "python-telegram-bot" },
+    { name = "tzdata" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "yt-dlp" },
 ]
@@ -772,6 +773,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "python-telegram-bot", specifier = ">=22.8" },
+    { name = "tzdata", specifier = ">=2026.4" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.53.0" },
     { name = "yt-dlp", specifier = ">=2026.8.19" },
 ]

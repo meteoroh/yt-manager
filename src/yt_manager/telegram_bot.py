@@ -1,12 +1,14 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 import html
 import io
 import logging
+import os
 from pathlib import Path
 import re
 import uuid
 from typing import Any, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
@@ -193,6 +195,36 @@ class TelegramBotService:
         )
         await update.message.reply_text(text, parse_mode="HTML")
 
+    def _get_tzinfo(self) -> Optional[tzinfo]:
+        """Resolve configured display timezone (settings.tz / TZ env) or fall back to OS local timezone."""
+        tz_name = (self.settings.tz or os.environ.get("TZ") or "").strip()
+        if tz_name:
+            try:
+                return ZoneInfo(tz_name)
+            except ZoneInfoNotFoundError:
+                logger.warning(f"Unknown timezone '{tz_name}', falling back to system local timezone.")
+        return datetime.now().astimezone().tzinfo
+
+    def _to_local_dt(self, value: datetime | str | None) -> Optional[datetime]:
+        """Convert a datetime or ISO timestamp string (defaulting naive values to UTC) into display timezone."""
+        if not value:
+            return None
+        if isinstance(value, str):
+            try:
+                dt = datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        else:
+            dt = value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(self._get_tzinfo())
+
+    def _format_local_dt(self, value: datetime | str | None, fmt: str = "%Y-%m-%d %H:%M %Z") -> Optional[str]:
+        """Format a datetime or ISO timestamp string in display timezone."""
+        local_dt = self._to_local_dt(value)
+        return local_dt.strftime(fmt) if local_dt else None
+
     def _format_auto_scan_status(self) -> str:
         """Format current background scan scheduler state for /status output."""
         if self.settings.scan_interval_minutes <= 0:
@@ -203,7 +235,7 @@ class TelegramBotService:
             return f"<b>Active</b> (every <code>{self.settings.scan_interval_minutes}m</code>)"
 
         if pause_state.paused_until:
-            local_until = pause_state.paused_until.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+            local_until = self._format_local_dt(pause_state.paused_until) or pause_state.paused_until.isoformat()
             remaining_sec = max(1, int((pause_state.paused_until - datetime.now(timezone.utc)).total_seconds()))
             remaining_str = format_duration_human(remaining_sec)
             return f"<b>Paused</b> (until <code>{html.escape(local_until)}</code>, {remaining_str} left)"
@@ -227,11 +259,17 @@ class TelegramBotService:
             )
         disk_section = ("\n" + "\n".join(disk_lines)) if disk_lines else ""
 
+        last_scanned_str = (
+            self._format_local_dt(stats.last_scanned_at, fmt="%Y-%m-%d %H:%M:%S %Z")
+            or stats.last_scanned_at
+            or "Never"
+        )
+
         text = (
             f"<b>yt-manager System Status</b>\n\n"
             f"• Total Saved Media: <b>{db.count():,}</b>\n"
             f"• Auto Scan: {self._format_auto_scan_status()}\n"
-            f"• Last Scanned At: <code>{html.escape(stats.last_scanned_at or 'Never')}</code>\n"
+            f"• Last Scanned At: <code>{html.escape(last_scanned_str)}</code>\n"
             f"• Scan Duration: <code>{stats.duration_seconds}s</code>\n"
             f"• Media Directory: <code>{html.escape(str(self.settings.media_dir))}</code>"
             f"{disk_section}\n"
@@ -322,7 +360,7 @@ class TelegramBotService:
 
         state = pause_auto_scan(seconds)
         duration_str = format_duration_human(seconds)
-        resume_str = state.paused_until.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        resume_str = self._format_local_dt(state.paused_until) or state.paused_until.isoformat()
         await update.message.reply_text(
             f"<b>Auto disk scan paused for {html.escape(duration_str)}.</b>\n\n"
             f"• Resumes at: <code>{html.escape(resume_str)}</code>\n"
@@ -409,8 +447,13 @@ class TelegramBotService:
         # Display in chronological order (oldest -> newest at the bottom) for mobile chat UX
         records.reverse()
         for r in records:
-            time_part = r["created_at"].split("T")[-1][:5] if "T" in r["created_at"] else ""
-            date_part = r["created_at"].split("T")[0] if "T" in r["created_at"] else ""
+            local_dt = self._to_local_dt(r["created_at"])
+            if local_dt:
+                date_part = local_dt.strftime("%Y-%m-%d")
+                time_part = local_dt.strftime("%H:%M")
+            else:
+                time_part = r["created_at"].split("T")[-1][:5] if "T" in r["created_at"] else ""
+                date_part = r["created_at"].split("T")[0] if "T" in r["created_at"] else ""
             ext = f"[{r['extractor'].upper()}]" if r["extractor"] else ""
             vid = f"<code>{r['video_id']}</code>" if r["video_id"] else ""
             source_tag = f"({r['source']})"

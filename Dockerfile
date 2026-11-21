@@ -11,6 +11,10 @@ WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# Install system timezone data so TZ env var works for OS/logging/scheduler
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy project files and source
 COPY pyproject.toml uv.lock* README.md ./
 COPY src/ ./src/

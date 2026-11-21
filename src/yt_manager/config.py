@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # Playlist settings
     playlist_max_items: int = 200
 
+    # Display timezone (e.g., "Asia/Seoul"). Defaults to system/OS timezone if empty.
+    tz: str = ""
+
     @property
     def parsed_exclude_dirs(self) -> list[str]:
         if not self.exclude_dirs:
