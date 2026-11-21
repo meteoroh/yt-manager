@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 import html
 import io
 import logging
@@ -22,7 +23,15 @@ from yt_manager.disk import get_configured_disks_usage
 from yt_manager.extractor import extract_from_url
 from yt_manager.metube import MeTubeClient
 from yt_manager.playlist import analyze_playlist, is_playlist_url
-from yt_manager.scanner import get_scan_stats, sync_disks_to_db_and_archive
+from yt_manager.scanner import (
+    format_duration_human,
+    get_pause_state,
+    get_scan_stats,
+    parse_pause_duration,
+    pause_auto_scan,
+    resume_auto_scan,
+    sync_disks_to_db_and_archive,
+)
 
 logger = logging.getLogger("yt_manager.telegram")
 
@@ -175,12 +184,31 @@ class TelegramBotService:
             f"• The bot checks if videos are already saved, and lets you download missing ones to MeTube with one click.\n\n"
             f"<b>Commands</b>:\n"
             f"• <code>/scan</code> - Scan NAS disk & sync archive immediately\n"
+            f"• <code>/pause [duration]</code> - Pause auto scan (e.g. <code>/pause</code>, <code>/pause 2h</code>, <code>/pause 30m</code>)\n"
+            f"• <code>/resume</code> - Resume paused auto scan\n"
             f"• <code>/status</code> - Check server status & media count\n"
             f"• <code>/disk</code> - Check storage disk usage\n"
             f"• <code>/history</code> - View recent request history\n\n"
             f"Your Telegram ID: <code>{user_id}</code>"
         )
         await update.message.reply_text(text, parse_mode="HTML")
+
+    def _format_auto_scan_status(self) -> str:
+        """Format current background scan scheduler state for /status output."""
+        if self.settings.scan_interval_minutes <= 0:
+            return "<b>Disabled</b> (<code>interval=0m</code>)"
+
+        pause_state = get_pause_state()
+        if not pause_state.paused:
+            return f"<b>Active</b> (every <code>{self.settings.scan_interval_minutes}m</code>)"
+
+        if pause_state.paused_until:
+            local_until = pause_state.paused_until.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+            remaining_sec = max(1, int((pause_state.paused_until - datetime.now(timezone.utc)).total_seconds()))
+            remaining_str = format_duration_human(remaining_sec)
+            return f"<b>Paused</b> (until <code>{html.escape(local_until)}</code>, {remaining_str} left)"
+
+        return "<b>Paused</b> (until <code>/resume</code>)"
 
     async def handle_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._check_auth(update):
@@ -202,6 +230,7 @@ class TelegramBotService:
         text = (
             f"<b>yt-manager System Status</b>\n\n"
             f"• Total Saved Media: <b>{db.count():,}</b>\n"
+            f"• Auto Scan: {self._format_auto_scan_status()}\n"
             f"• Last Scanned At: <code>{html.escape(stats.last_scanned_at or 'Never')}</code>\n"
             f"• Scan Duration: <code>{stats.duration_seconds}s</code>\n"
             f"• Media Directory: <code>{html.escape(str(self.settings.media_dir))}</code>"
@@ -254,6 +283,77 @@ class TelegramBotService:
             f"• Duration: <b>{stats.duration_seconds}s</b>",
             parse_mode="HTML",
         )
+
+    async def handle_pause(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._check_auth(update):
+            return
+
+        if self.settings.scan_interval_minutes <= 0:
+            await update.message.reply_text(
+                "Auto disk scan is currently disabled (<code>SCAN_INTERVAL_MINUTES=0</code>).",
+                parse_mode="HTML",
+            )
+            return
+
+        if not context.args:
+            pause_auto_scan(None)
+            await update.message.reply_text(
+                "<b>Auto disk scan paused.</b>\n\n"
+                "• Scheduled background scans are paused until you run <code>/resume</code>.\n"
+                "• Manual <code>/scan</code> remains available anytime.",
+                parse_mode="HTML",
+            )
+            return
+
+        raw_duration = " ".join(context.args).strip()
+        seconds = parse_pause_duration(raw_duration)
+        if seconds is None:
+            await update.message.reply_text(
+                f"Invalid duration format: <code>{html.escape(raw_duration)}</code>\n\n"
+                f"<b>Usage:</b>\n"
+                f"• <code>/pause</code> - Pause until <code>/resume</code>\n"
+                f"• <code>/pause 30m</code> (or <code>/pause 30</code>) - Pause for 30 minutes\n"
+                f"• <code>/pause 2h</code> - Pause for 2 hours\n"
+                f"• <code>/pause 1d</code> - Pause for 1 day\n"
+                f"• <code>/pause 1h30m</code> - Pause for 1 hour 30 minutes",
+                parse_mode="HTML",
+            )
+            return
+
+        state = pause_auto_scan(seconds)
+        duration_str = format_duration_human(seconds)
+        resume_str = state.paused_until.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        await update.message.reply_text(
+            f"<b>Auto disk scan paused for {html.escape(duration_str)}.</b>\n\n"
+            f"• Resumes at: <code>{html.escape(resume_str)}</code>\n"
+            f"• Run <code>/resume</code> to resume earlier.\n"
+            f"• Manual <code>/scan</code> remains available anytime.",
+            parse_mode="HTML",
+        )
+
+    async def handle_resume(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not await self._check_auth(update):
+            return
+
+        if self.settings.scan_interval_minutes <= 0:
+            await update.message.reply_text(
+                "Auto disk scan is currently disabled (<code>SCAN_INTERVAL_MINUTES=0</code>).",
+                parse_mode="HTML",
+            )
+            return
+
+        was_paused = resume_auto_scan()
+        if was_paused:
+            await update.message.reply_text(
+                f"<b>Auto disk scan resumed.</b>\n\n"
+                f"• Scheduled background scans will continue every <b>{self.settings.scan_interval_minutes}m</b>.",
+                parse_mode="HTML",
+            )
+        else:
+            await update.message.reply_text(
+                f"Auto disk scan is already active (interval: <b>{self.settings.scan_interval_minutes}m</b>).",
+                parse_mode="HTML",
+            )
 
     async def handle_history(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await self._check_auth(update):
@@ -672,6 +772,8 @@ class TelegramBotService:
         self.app.add_handler(CommandHandler("status", self.handle_status))
         self.app.add_handler(CommandHandler("disk", self.handle_disk))
         self.app.add_handler(CommandHandler("scan", self.handle_scan))
+        self.app.add_handler(CommandHandler("pause", self.handle_pause))
+        self.app.add_handler(CommandHandler("resume", self.handle_resume))
         self.app.add_handler(CommandHandler("history", self.handle_history))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message))
         self.app.add_handler(MessageHandler(filters.Document.FileExtension("txt"), self.handle_document_message))

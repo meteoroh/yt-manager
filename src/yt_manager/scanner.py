@@ -1,8 +1,10 @@
 import fnmatch
 import os
+import re
+import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -64,6 +66,149 @@ current_stats = ScanStats()
 
 def get_scan_stats() -> ScanStats:
     return current_stats
+
+
+MAX_PAUSE_SECONDS = 365 * 86400
+
+_UNIT_MULTIPLIERS = {
+    "s": 1,
+    "sec": 1,
+    "secs": 1,
+    "second": 1,
+    "seconds": 1,
+    "m": 60,
+    "min": 60,
+    "mins": 60,
+    "minute": 60,
+    "minutes": 60,
+    "h": 3600,
+    "hr": 3600,
+    "hrs": 3600,
+    "hour": 3600,
+    "hours": 3600,
+    "d": 86400,
+    "day": 86400,
+    "days": 86400,
+}
+
+_DURATION_TOKEN_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(days?|day|d|hours?|hrs?|hr|h|minutes?|mins?|min|m|seconds?|secs?|sec|s)",
+    re.IGNORECASE,
+)
+
+
+@dataclass
+class ScanPauseState:
+    paused: bool = False
+    paused_until: Optional[datetime] = None
+
+
+_pause_lock = threading.Lock()
+_pause_state = ScanPauseState()
+
+
+def _refresh_pause_state_locked() -> None:
+    """Clear expired timed pause state while holding _pause_lock."""
+    if _pause_state.paused and _pause_state.paused_until is not None:
+        if datetime.now(timezone.utc) >= _pause_state.paused_until:
+            _pause_state.paused = False
+            _pause_state.paused_until = None
+
+
+def parse_pause_duration(raw: str) -> Optional[int]:
+    """
+    Parse a human duration string (e.g. '30m', '2h', '1d', '1h30m', '30')
+    into positive integer seconds, or None if invalid.
+    A bare number without units is interpreted as minutes.
+    """
+    text = raw.strip()
+    if not text:
+        return None
+
+    # Bare number -> minutes
+    if re.fullmatch(r"\d+(?:\.\d+)?", text):
+        total = int(round(float(text) * 60))
+        return total if 1 <= total <= MAX_PAUSE_SECONDS else None
+
+    pos = 0
+    total_float = 0.0
+    for m in _DURATION_TOKEN_RE.finditer(text):
+        # Ensure only whitespace appears between matched tokens
+        if text[pos : m.start()].strip():
+            return None
+        value = float(m.group(1))
+        unit = m.group(2).lower()
+        multiplier = _UNIT_MULTIPLIERS.get(unit)
+        if multiplier is None:
+            return None
+        total_float += value * multiplier
+        pos = m.end()
+
+    if pos == 0 or text[pos:].strip():
+        return None
+
+    total = int(round(total_float))
+    if total < 1 or total > MAX_PAUSE_SECONDS:
+        return None
+    return total
+
+
+def format_duration_human(seconds: int) -> str:
+    """Format a positive number of seconds into a compact readable string."""
+    remaining = max(1, int(seconds))
+    days, rem = divmod(remaining, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if secs and not days:
+        parts.append(f"{secs}s")
+    return " ".join(parts) if parts else "1s"
+
+
+def pause_auto_scan(duration_seconds: Optional[int] = None) -> ScanPauseState:
+    """Pause periodic background disk scanning indefinitely or for duration_seconds."""
+    with _pause_lock:
+        _pause_state.paused = True
+        if duration_seconds is not None and duration_seconds > 0:
+            _pause_state.paused_until = datetime.now(timezone.utc) + timedelta(seconds=duration_seconds)
+        else:
+            _pause_state.paused_until = None
+        return ScanPauseState(
+            paused=_pause_state.paused,
+            paused_until=_pause_state.paused_until,
+        )
+
+
+def resume_auto_scan() -> bool:
+    """Resume periodic background disk scanning. Returns True if it was previously paused."""
+    with _pause_lock:
+        _refresh_pause_state_locked()
+        was_paused = _pause_state.paused
+        _pause_state.paused = False
+        _pause_state.paused_until = None
+        return was_paused
+
+
+def get_pause_state() -> ScanPauseState:
+    """Return current pause state, auto-clearing if a timed pause has expired."""
+    with _pause_lock:
+        _refresh_pause_state_locked()
+        return ScanPauseState(
+            paused=_pause_state.paused,
+            paused_until=_pause_state.paused_until,
+        )
+
+
+def is_scan_paused() -> bool:
+    """Return True if scheduled background scanning is currently paused."""
+    return get_pause_state().paused
 
 
 def is_directory_excluded(dir_path: Path, exclude_dirs: list[str]) -> bool:

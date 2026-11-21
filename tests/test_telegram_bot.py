@@ -731,3 +731,109 @@ async def test_telegram_playlist_with_unavailable_videos(tmp_path: Path, monkeyp
     assert reply_markup2 is None
 
 
+@pytest.mark.asyncio
+async def test_telegram_pause_and_resume(tmp_path: Path):
+    from unittest.mock import AsyncMock, MagicMock
+    from yt_manager.scanner import get_pause_state, is_scan_paused, resume_auto_scan
+    from yt_manager.telegram_bot import TelegramBotService
+
+    media_dir = tmp_path / "media"
+    downloads_dir = tmp_path / "downloads"
+    media_dir.mkdir()
+    downloads_dir.mkdir()
+    (media_dir / "Song [youtube-abc12345678].mp4").write_text("dummy")
+
+    db_path = tmp_path / "tg_pause.db"
+    settings = Settings(
+        media_dir=media_dir,
+        downloads_dir=downloads_dir,
+        db_path=db_path,
+        archive_file_path=tmp_path / "archive.txt",
+        scan_interval_minutes=120,
+    )
+    service = TelegramBotService(settings)
+
+    mock_update = MagicMock()
+    mock_update.effective_user = MagicMock(id=12345)
+    mock_update.message = AsyncMock()
+    mock_context = MagicMock()
+
+    try:
+        resume_auto_scan()
+
+        # 1. /pause with invalid duration -> does not pause, shows usage
+        mock_context.args = ["invalid"]
+        await service.handle_pause(mock_update, mock_context)
+        msg = mock_update.message.reply_text.call_args[0][0]
+        assert "Invalid duration format" in msg
+        assert is_scan_paused() is False
+
+        # 2. /pause without args -> indefinite pause
+        mock_update.message.reply_text.reset_mock()
+        mock_context.args = []
+        await service.handle_pause(mock_update, mock_context)
+        msg = mock_update.message.reply_text.call_args[0][0]
+        assert "Auto disk scan paused." in msg
+        assert "/resume" in msg
+        assert is_scan_paused() is True
+        assert get_pause_state().paused_until is None
+
+        # /status should show Paused
+        mock_update.message.reply_text.reset_mock()
+        await service.handle_status(mock_update, mock_context)
+        status_msg = mock_update.message.reply_text.call_args[0][0]
+        assert "Auto Scan: <b>Paused</b>" in status_msg
+
+        # Manual /scan must still work while auto-scan is paused
+        mock_scan_msg = AsyncMock()
+        mock_update.message.reply_text = AsyncMock(return_value=mock_scan_msg)
+        await service.handle_scan(mock_update, mock_context)
+        scan_result_text = mock_scan_msg.edit_text.call_args[0][0]
+        assert "Scan Complete!" in scan_result_text
+        assert "Total Files: <b>1</b>" in scan_result_text
+        assert is_scan_paused() is True
+
+        # 3. /pause with duration (e.g. "2h 30m")
+        mock_update.message.reply_text = AsyncMock()
+        mock_context.args = ["2h", "30m"]
+        await service.handle_pause(mock_update, mock_context)
+        msg = mock_update.message.reply_text.call_args[0][0]
+        assert "paused for 2h 30m" in msg
+        assert "Resumes at:" in msg
+        state = get_pause_state()
+        assert state.paused is True
+        assert state.paused_until is not None
+
+        # /status should show timed pause details
+        mock_update.message.reply_text.reset_mock()
+        await service.handle_status(mock_update, mock_context)
+        status_msg = mock_update.message.reply_text.call_args[0][0]
+        assert "Auto Scan: <b>Paused</b>" in status_msg
+        assert "left)" in status_msg
+
+        # 4. /resume -> resumes scanning
+        mock_update.message.reply_text.reset_mock()
+        mock_context.args = []
+        await service.handle_resume(mock_update, mock_context)
+        resume_msg = mock_update.message.reply_text.call_args[0][0]
+        assert "Auto disk scan resumed." in resume_msg
+        assert is_scan_paused() is False
+
+        # 5. /resume again when already active
+        mock_update.message.reply_text.reset_mock()
+        await service.handle_resume(mock_update, mock_context)
+        already_msg = mock_update.message.reply_text.call_args[0][0]
+        assert "already active" in already_msg
+
+        # 6. /pause when scan_interval_minutes=0 (disabled)
+        disabled_service = TelegramBotService(
+            Settings(media_dir=media_dir, downloads_dir=downloads_dir, db_path=db_path, scan_interval_minutes=0)
+        )
+        mock_update.message.reply_text.reset_mock()
+        await disabled_service.handle_pause(mock_update, mock_context)
+        disabled_msg = mock_update.message.reply_text.call_args[0][0]
+        assert "currently disabled" in disabled_msg
+    finally:
+        resume_auto_scan()
+
+

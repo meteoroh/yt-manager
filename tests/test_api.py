@@ -87,6 +87,9 @@ def test_api_check_video_and_scan(test_env):
     status_data = status_resp.json()
     assert status_data["status"] == "ok"
     assert status_data["total_media_in_db"] == 1
+    assert status_data["auto_scan_enabled"] is False
+    assert status_data["auto_scan_paused"] is False
+    assert status_data["auto_scan_paused_until"] is None
     assert "disks" in status_data
     assert len(status_data["disks"]) >= 1
     assert any(d["path"] == str(test_env["media_dir"]) for d in status_data["disks"])

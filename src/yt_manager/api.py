@@ -9,7 +9,7 @@ from yt_manager.disk import get_configured_disks_usage
 from yt_manager.extractor import extract_from_url
 from yt_manager.metube import MeTubeClient
 from yt_manager.playlist import analyze_playlist, is_playlist_url
-from yt_manager.scanner import get_scan_stats, sync_disks_to_db_and_archive
+from yt_manager.scanner import get_pause_state, get_scan_stats, sync_disks_to_db_and_archive
 
 router = APIRouter()
 
@@ -120,6 +120,9 @@ class StatusResponse(BaseModel):
     total_media_in_db: int
     last_scanned_at: Optional[str]
     last_scan_duration_sec: float
+    auto_scan_enabled: bool = True
+    auto_scan_paused: bool = False
+    auto_scan_paused_until: Optional[str] = None
     downloads_dir: str
     media_dir: str
     archive_file: str
@@ -672,6 +675,7 @@ def get_status(
     db: Database = Depends(get_db),
 ):
     stats = get_scan_stats()
+    pause_state = get_pause_state()
     disks_info = get_configured_disks_usage(
         media_dir=settings.media_dir,
         downloads_dir=settings.downloads_dir,
@@ -681,6 +685,11 @@ def get_status(
         total_media_in_db=db.count(),
         last_scanned_at=stats.last_scanned_at,
         last_scan_duration_sec=stats.duration_seconds,
+        auto_scan_enabled=(settings.scan_interval_minutes > 0),
+        auto_scan_paused=pause_state.paused,
+        auto_scan_paused_until=(
+            pause_state.paused_until.isoformat() if pause_state.paused_until else None
+        ),
         downloads_dir=str(settings.downloads_dir),
         media_dir=str(settings.media_dir),
         archive_file=str(settings.archive_file_path),

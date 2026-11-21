@@ -7,7 +7,7 @@ import uvicorn
 from yt_manager.api import router
 from yt_manager.config import get_settings
 from yt_manager.db import Database
-from yt_manager.scanner import sync_disks_to_db_and_archive
+from yt_manager.scanner import get_pause_state, is_scan_paused, sync_disks_to_db_and_archive
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +33,16 @@ scheduler = AsyncIOScheduler()
 
 
 def run_scheduled_scan():
+    if is_scan_paused():
+        pause_state = get_pause_state()
+        if pause_state.paused_until:
+            logger.info(
+                f"Scheduled disk scan skipped (paused until {pause_state.paused_until.isoformat()})."
+            )
+        else:
+            logger.info("Scheduled disk scan skipped (paused indefinitely).")
+        return
+
     settings = get_settings()
     logger.info("Starting scheduled disk scan...")
     try:

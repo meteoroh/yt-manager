@@ -353,3 +353,84 @@ def test_database_cleanup_old_history(tmp_path: Path):
     assert len(remaining) == 1
     assert remaining[0]["url"] == "https://youtube.com/watch?v=new"
 
+
+def test_parse_pause_duration_and_format():
+    from yt_manager.scanner import format_duration_human, parse_pause_duration
+
+    assert parse_pause_duration("30") == 1800
+    assert parse_pause_duration("45s") == 45
+    assert parse_pause_duration("15m") == 900
+    assert parse_pause_duration("2h") == 7200
+    assert parse_pause_duration("1.5h") == 5400
+    assert parse_pause_duration("1d") == 86400
+    assert parse_pause_duration("1h30m") == 5400
+    assert parse_pause_duration("1h 30m") == 5400
+    assert parse_pause_duration("1d 2h") == 93600
+
+    assert parse_pause_duration("") is None
+    assert parse_pause_duration("0") is None
+    assert parse_pause_duration("-5m") is None
+    assert parse_pause_duration("abc") is None
+    assert parse_pause_duration("1h 30") is None
+    assert parse_pause_duration("10x") is None
+    assert parse_pause_duration("400d") is None
+
+    assert format_duration_human(45) == "45s"
+    assert format_duration_human(1800) == "30m"
+    assert format_duration_human(5400) == "1h 30m"
+    assert format_duration_human(90000) == "1d 1h"
+
+
+def test_pause_resume_and_scheduled_scan_skip(monkeypatch):
+    import importlib
+    from datetime import datetime, timedelta, timezone
+    from yt_manager.scanner import (
+        get_pause_state,
+        is_scan_paused,
+        pause_auto_scan,
+        resume_auto_scan,
+    )
+
+    main_mod = importlib.import_module("yt_manager.main")
+
+    try:
+        resume_auto_scan()
+        assert is_scan_paused() is False
+
+        # 1. Indefinite pause
+        state = pause_auto_scan(None)
+        assert state.paused is True
+        assert state.paused_until is None
+        assert is_scan_paused() is True
+
+        # run_scheduled_scan must skip without touching disk
+        scan_called = False
+
+        def mock_sync(*args, **kwargs):
+            nonlocal scan_called
+            scan_called = True
+
+        monkeypatch.setattr(main_mod, "sync_disks_to_db_and_archive", mock_sync)
+        main_mod.run_scheduled_scan()
+        assert scan_called is False
+
+        # 2. Resume
+        assert resume_auto_scan() is True
+        assert resume_auto_scan() is False
+        assert is_scan_paused() is False
+
+        # 3. Timed pause auto-expires when paused_until is in the past
+        pause_auto_scan(60)
+        assert is_scan_paused() is True
+        from yt_manager import scanner as scanner_mod
+
+        with scanner_mod._pause_lock:
+            scanner_mod._pause_state.paused_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+        expired_state = get_pause_state()
+        assert expired_state.paused is False
+        assert expired_state.paused_until is None
+        assert is_scan_paused() is False
+    finally:
+        resume_auto_scan()
+
