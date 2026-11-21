@@ -899,3 +899,59 @@ async def test_telegram_timezone_formatting(tmp_path: Path):
         resume_auto_scan()
 
 
+@pytest.mark.asyncio
+async def test_telegram_clickable_video_id_links(tmp_path: Path):
+    from unittest.mock import AsyncMock, MagicMock
+    from yt_manager.telegram_bot import NO_LINK_PREVIEW, TelegramBotService, format_video_id_link
+
+    # Unit checks for helper
+    assert (
+        format_video_id_link("dQw4w9WgXcQ", "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1")
+        == '<a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ&amp;t=1">dQw4w9WgXcQ</a>'
+    )
+    assert format_video_id_link("abc123", None) == "<code>abc123</code>"
+    assert format_video_id_link(None, "https://youtube.com") == ""
+
+    db_path = tmp_path / "tg_links.db"
+    db = Database(db_path)
+    db.sync_all([("youtube", "savedVid001", "/media/Artist/Song [youtube-savedVid001].mp4")])
+
+    service = TelegramBotService(Settings(db_path=db_path))
+    mock_update = MagicMock()
+    mock_update.effective_user = MagicMock(id=12345)
+    mock_update.message = AsyncMock()
+
+    # 1. Single found URL
+    url_saved = "https://www.youtube.com/watch?v=savedVid001"
+    await service._process_and_respond(mock_update, [url_saved])
+    args, kwargs = mock_update.message.reply_text.call_args
+    assert f'<a href="{url_saved}">savedVid001</a>' in args[0]
+    assert kwargs.get("link_preview_options") == NO_LINK_PREVIEW
+
+    # 2. Single missing URL
+    mock_update.message.reply_text.reset_mock()
+    url_miss = "https://www.youtube.com/watch?v=missVid0002"
+    await service._process_and_respond(mock_update, [url_miss])
+    args, kwargs = mock_update.message.reply_text.call_args
+    assert f'<a href="{url_miss}">missVid0002</a>' in args[0]
+    assert kwargs.get("link_preview_options") == NO_LINK_PREVIEW
+
+    # 3. Bulk URLs
+    mock_update.message.reply_text.reset_mock()
+    await service._process_and_respond(mock_update, [url_saved, url_miss])
+    args, kwargs = mock_update.message.reply_text.call_args
+    assert f'<a href="{url_saved}">savedVid001</a>' in args[0]
+    assert f'<a href="{url_miss}">missVid0002</a>' in args[0]
+    assert kwargs.get("link_preview_options") == NO_LINK_PREVIEW
+
+    # 4. /history output
+    mock_update.message.reply_text.reset_mock()
+    mock_context = MagicMock()
+    mock_context.args = []
+    await service.handle_history(mock_update, mock_context)
+    args, kwargs = mock_update.message.reply_text.call_args
+    assert f'<a href="{url_saved}">savedVid001</a>' in args[0]
+    assert f'<a href="{url_miss}">missVid0002</a>' in args[0]
+    assert kwargs.get("link_preview_options") == NO_LINK_PREVIEW
+
+

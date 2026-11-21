@@ -9,7 +9,7 @@ import re
 import uuid
 from typing import Any, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -38,6 +38,7 @@ from yt_manager.scanner import (
 logger = logging.getLogger("yt_manager.telegram")
 
 URL_REGEX = re.compile(r"https?://[^\s<>\"'`]+")
+NO_LINK_PREVIEW = LinkPreviewOptions(is_disabled=True)
 
 # In-memory action cache for callback queries (due to Telegram 64-byte callback_data limit)
 ACTION_CACHE: dict[str, list[str]] = {}
@@ -50,12 +51,25 @@ def extract_urls_from_text(text: str) -> list[str]:
     return list(dict.fromkeys(matches))
 
 
+def format_video_id_link(video_id: Optional[str], url: Optional[str]) -> str:
+    """Format video_id as a clickable HTML link to its source URL, falling back to <code>."""
+    if not video_id:
+        return ""
+    safe_id = html.escape(video_id)
+    clean_url = (url or "").strip()
+    if clean_url.startswith(("http://", "https://")):
+        safe_url = html.escape(clean_url, quote=True)
+        return f'<a href="{safe_url}">{safe_id}</a>'
+    return f"<code>{safe_id}</code>"
+
+
 async def send_chunked_reply(
     message: Any,
     lines: list[str],
     parse_mode: str = "HTML",
     max_chars: int = 3800,
     reply_markup: Any = None,
+    link_preview_options: Any = NO_LINK_PREVIEW,
 ) -> None:
     """
     Send messages in line-based chunks to ensure messages never exceed
@@ -81,7 +95,12 @@ async def send_chunked_reply(
 
     for i, c in enumerate(chunks):
         markup = reply_markup if (i == len(chunks) - 1) else None
-        await message.reply_text("\n".join(c), parse_mode=parse_mode, reply_markup=markup)
+        await message.reply_text(
+            "\n".join(c),
+            parse_mode=parse_mode,
+            reply_markup=markup,
+            link_preview_options=link_preview_options,
+        )
 
 
 def analyze_urls(
@@ -455,7 +474,7 @@ class TelegramBotService:
                 time_part = r["created_at"].split("T")[-1][:5] if "T" in r["created_at"] else ""
                 date_part = r["created_at"].split("T")[0] if "T" in r["created_at"] else ""
             ext = f"[{r['extractor'].upper()}]" if r["extractor"] else ""
-            vid = f"<code>{r['video_id']}</code>" if r["video_id"] else ""
+            vid = format_video_id_link(r.get("video_id"), r.get("url"))
             source_tag = f"({r['source']})"
 
             detail_info = ""
@@ -614,22 +633,28 @@ class TelegramBotService:
             if found:
                 item = found[0]
                 folder_path = str(Path(item["file_path"]).parent)
+                vid_link = format_video_id_link(item["video_id"], item["url"])
                 text = (
                     f"<b>Video already saved!</b>\n\n"
                     f"• Platform: <b>{html.escape(item['extractor'].upper())}</b>\n"
-                    f"• ID: <code>{html.escape(item['video_id'])}</code>\n"
+                    f"• ID: {vid_link}\n"
                     f"• Location: <code>{html.escape(folder_path)}</code>"
                 )
-                await update.message.reply_text(text, parse_mode="HTML")
+                await update.message.reply_text(
+                    text,
+                    parse_mode="HTML",
+                    link_preview_options=NO_LINK_PREVIEW,
+                )
             elif missing:
                 item = missing[0]
                 action_id = str(uuid.uuid4())[:8]
                 ACTION_CACHE[action_id] = [item["url"]]
+                vid_link = format_video_id_link(item["video_id"], item["url"])
 
                 text = (
                     f"<b>Video not saved.</b>\n\n"
                     f"• Platform: <b>{html.escape(item['extractor'].upper())}</b>\n"
-                    f"• ID: <code>{html.escape(item['video_id'])}</code>\n\n"
+                    f"• ID: {vid_link}\n\n"
                     f"Download now via MeTube?"
                 )
                 keyboard = [
@@ -641,6 +666,7 @@ class TelegramBotService:
                     text,
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode="HTML",
+                    link_preview_options=NO_LINK_PREVIEW,
                 )
             else:
                 await update.message.reply_text("Could not extract video ID from the provided URL.")
@@ -657,8 +683,9 @@ class TelegramBotService:
             report_lines.append(f"<b>Already Saved ({len(found)}):</b>")
             for item in found:
                 folder_path = str(Path(item["file_path"]).parent)
+                vid_link = format_video_id_link(item["video_id"], item["url"])
                 report_lines.append(
-                    f"• [{html.escape(item['extractor'].upper())}] <code>{html.escape(item['video_id'])}</code>\n"
+                    f"• [{html.escape(item['extractor'].upper())}] {vid_link}\n"
                     f"  └ <code>{html.escape(folder_path)}</code>"
                 )
             report_lines.append("")
@@ -666,8 +693,9 @@ class TelegramBotService:
         if missing:
             report_lines.append(f"<b>Missing ({len(missing)}):</b>")
             for item in missing:
+                vid_link = format_video_id_link(item["video_id"], item["url"])
                 report_lines.append(
-                    f"• [{html.escape(item['extractor'].upper())}] <code>{html.escape(item['video_id'])}</code>"
+                    f"• [{html.escape(item['extractor'].upper())}] {vid_link}"
                 )
             report_lines.append("")
 
